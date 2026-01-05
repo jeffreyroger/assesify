@@ -1,11 +1,24 @@
 from app.main import app
-from app.models.users import db
+from app.models.users import db, User
 from app.models.lesson import Lesson
 from app.models.quiz import Quiz
 from ml.train.quiz_gen import generate_quiz
+from werkzeug.security import generate_password_hash
 
 def seed():
     with app.app_context():
+        # Create a default user if not exists
+        if not User.query.filter_by(email="admin@assesify.com").first():
+            admin = User(
+                email="admin@assesify.com",
+                full_name="Admin User",
+                password_hash=generate_password_hash("password123"),
+                is_teacher=True
+            )
+            db.session.add(admin)
+            db.session.commit()
+            print("Created default user: admin@assesify.com")
+        
         # Create a Lesson
         lesson_content = (
             "Photosynthesis is the process by which green plants and some other organisms use sunlight to synthesize foods "
