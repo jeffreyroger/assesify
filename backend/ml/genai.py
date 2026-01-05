@@ -18,7 +18,7 @@ from typing import Any, Optional
 class GeminiClient:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        self.model = model or os.getenv("GEMINI_MODEL", "gemini-3.5")
+        self.model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self._client: Optional[Any] = None
 
     def _get_client(self) -> Optional[Any]:
@@ -28,7 +28,7 @@ class GeminiClient:
             from google import genai  # type: ignore
 
             if not self.api_key:
-                # Client library might work without explicit key if running in GCP; still attach anyway
+                # Client library might work without explicit key if running in GCP
                 self._client = genai.Client()
             else:
                 self._client = genai.Client(api_key=self.api_key)
@@ -37,18 +37,14 @@ class GeminiClient:
         return self._client
 
     def _extract_text_from_response(self, resp: Any) -> str:
-        # Common response shapes from google genai or similar
-        if hasattr(resp, "text") and resp.text:
+        # The google-genai SDK uses .text for the result
+        if hasattr(resp, "text"):
             return resp.text
-        if hasattr(resp, "output") and resp.output:
-            return resp.output
-        if hasattr(resp, "candidates") and resp.candidates:
-            first = resp.candidates[0]
-            if hasattr(first, "output"):
-                return first.output
-            if hasattr(first, "content"):
-                return first.content
-        return str(resp)
+        # Fallback for complex response objects
+        try:
+            return resp.candidates[0].content.parts[0].text
+        except:
+            return str(resp)
 
     def generate_text(self, prompt: str, **kwargs) -> str:
         """Return model text for the prompt.
@@ -59,14 +55,16 @@ class GeminiClient:
         if client is None:
             raise RuntimeError("No Gemini client available (missing dependency or API key)")
 
-        # Keep compatibility with a couple of client shapes
         try:
-            resp = client.generate_text(model=self.model, prompt=prompt, **kwargs)
-        except TypeError:
-            # Some clients may expect different arg names or a single request object; try fallback
-            resp = client.generate_text(prompt)
-
-        return self._extract_text_from_response(resp).strip()
+            # model name should not have 'models/' prefix for the SDK call
+            m = self.model
+            if m.startswith("models/"):
+                m = m[7:]
+            
+            resp = client.models.generate_content(model=m, contents=prompt, **kwargs)
+            return self._extract_text_from_response(resp).strip()
+        except Exception as e:
+            raise RuntimeError(f"Gemini generation failed: {e}")
 
     def generate_json(self, prompt: str, **kwargs) -> dict:
         """Request a JSON object response and return parsed JSON.

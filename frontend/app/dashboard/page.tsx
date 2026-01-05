@@ -24,6 +24,8 @@ export default function DashboardPage() {
     const [user, setUser] = useState<any>(null);
 
     const [recentQuizzes, setRecentQuizzes] = useState<any[]>([]);
+    const [weeklyPerformance, setWeeklyPerformance] = useState<any>(null);
+    const [isGeneratingWeeklyTest, setIsGeneratingWeeklyTest] = useState(false);
 
     const fetchClasses = async () => {
         try {
@@ -63,12 +65,69 @@ export default function DashboardPage() {
         }
     };
 
+    const getWeekDates = () => {
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - dayOfWeek); // Sunday
+        startOfWeek.setHours(0, 0, 0, 0);
+
+        const endOfWeek = new Date(startOfWeek);
+        endOfWeek.setDate(startOfWeek.getDate() + 6); // Saturday
+        endOfWeek.setHours(23, 59, 59, 999);
+
+        return { startOfWeek, endOfWeek };
+    };
+
+    const fetchWeeklyPerformance = async () => {
+        if (!user || user.is_teacher) return;
+
+        const { startOfWeek, endOfWeek } = getWeekDates();
+        try {
+            const data = await api.getWeeklyPerformance(
+                user.id,
+                startOfWeek.toISOString().split('T')[0],
+                endOfWeek.toISOString().split('T')[0]
+            );
+            setWeeklyPerformance(data);
+        } catch (err) {
+            console.error("Failed to fetch weekly performance", err);
+        }
+    };
+
+    const handleGenerateWeeklyTest = async () => {
+        if (!user) return;
+
+        setIsGeneratingWeeklyTest(true);
+        const { startOfWeek, endOfWeek } = getWeekDates();
+
+        try {
+            const quiz = await api.generateWeeklyTest(
+                user.id,
+                10, // 10 questions
+                startOfWeek.toISOString().split('T')[0],
+                endOfWeek.toISOString().split('T')[0]
+            );
+
+            // Redirect to the quiz
+            window.location.href = `/quiz/${quiz.id}`;
+        } catch (err: any) {
+            console.error("Failed to generate weekly test", err);
+            alert(err.message || "Failed to generate weekly test. Please try again.");
+        } finally {
+            setIsGeneratingWeeklyTest(false);
+        }
+    };
+
     useEffect(() => {
         const u = getUser();
         setUser(u);
         fetchClasses();
         fetchRecentQuizzes();
         fetchLessons();
+        if (u && !u.is_teacher) {
+            fetchWeeklyPerformance();
+        }
     }, []);
 
     const pendingQuizzes = [
@@ -154,6 +213,91 @@ export default function DashboardPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Weekly Test Section (Students Only) */}
+            {!user?.is_teacher && (
+                <section className="mb-10">
+                    <div className="bg-gradient-to-br from-brand-purple to-brand-blue p-8 rounded-3xl border-2 border-brand-purple-dark shadow-xl relative overflow-hidden">
+                        {/* Background decoration */}
+                        <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32"></div>
+                        <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/5 rounded-full -ml-24 -mb-24"></div>
+
+                        <div className="relative z-10">
+                            <div className="flex items-start justify-between mb-6">
+                                <div>
+                                    <h2 className="text-2xl font-black text-white mb-2 flex items-center gap-2">
+                                        📊 Weekly Test
+                                    </h2>
+                                    <p className="text-white/80 text-sm font-medium">
+                                        {(() => {
+                                            const { startOfWeek, endOfWeek } = getWeekDates();
+                                            return `${startOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${endOfWeek.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+                                        })()}
+                                    </p>
+                                </div>
+                                <div className="bg-white/20 backdrop-blur-sm px-4 py-2 rounded-xl">
+                                    <span className="text-white font-black text-sm">10 Questions</span>
+                                </div>
+                            </div>
+
+                            {weeklyPerformance && weeklyPerformance.topics && weeklyPerformance.topics.length > 0 ? (
+                                <div className="space-y-4">
+                                    <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4">
+                                        <h3 className="text-white font-bold text-sm mb-3 uppercase tracking-wide">Your Week at a Glance</h3>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                            {weeklyPerformance.topics.slice(0, 6).map((topic: any, idx: number) => (
+                                                <div key={idx} className="bg-white/10 rounded-xl p-3">
+                                                    <div className="flex items-center justify-between mb-1">
+                                                        <span className="text-white/90 text-xs font-bold truncate">{topic.topic}</span>
+                                                        <span className={`text-xs font-black ${topic.accuracy >= 70 ? 'text-brand-green' :
+                                                            topic.accuracy >= 50 ? 'text-brand-yellow' :
+                                                                'text-brand-red'
+                                                            }`}>
+                                                            {topic.accuracy}%
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-full bg-white/20 rounded-full h-1.5">
+                                                        <div
+                                                            className={`h-1.5 rounded-full ${topic.accuracy >= 70 ? 'bg-brand-green' :
+                                                                topic.accuracy >= 50 ? 'bg-brand-yellow' :
+                                                                    'bg-brand-red'
+                                                                }`}
+                                                            style={{ width: `${topic.accuracy}%` }}
+                                                        ></div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <Button
+                                        onClick={handleGenerateWeeklyTest}
+                                        disabled={isGeneratingWeeklyTest}
+                                        className="w-full bg-white text-brand-purple hover:bg-white/90 font-black py-4 rounded-xl shadow-lg text-lg"
+                                    >
+                                        {isGeneratingWeeklyTest ? (
+                                            <><ArrowRight className="w-5 h-5 mr-2 animate-spin" /> Generating Your Test...</>
+                                        ) : (
+                                            <><ArrowRight className="w-5 h-5 mr-2" /> Generate Weekly Test</>
+                                        )}
+                                    </Button>
+                                </div>
+                            ) : (
+                                <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-6 text-center">
+                                    <p className="text-white/80 mb-4">No quiz activity this week yet. Complete some quizzes to unlock your personalized weekly test!</p>
+                                    <Button
+                                        onClick={() => setIsJoinModalOpen(true)}
+                                        variant="outline"
+                                        className="border-white text-white hover:bg-white/20"
+                                    >
+                                        Browse Quizzes
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </section>
+            )}
 
             {/* Main Content Sections */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">

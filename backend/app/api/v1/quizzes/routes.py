@@ -1,9 +1,78 @@
 from flask import Blueprint, jsonify, request
+from datetime import datetime
 from app.models.users import db, User
 from app.models.quiz import Quiz
 from app.models.submission import QuizAttempt, QuizAnswer
 
+from app.services.personalized_quiz_service import PersonalizedQuizService
+
 quizzes_bp = Blueprint('quizzes', __name__)
+
+@quizzes_bp.route('/generate-personalized', methods=['POST'])
+def generate_personalized_quiz():
+    data = request.get_json()
+    user_id = data.get('user_id')
+    topic_filter = data.get('topic')
+    
+    if not user_id:
+        return jsonify({"error": "User ID is required"}), 400
+        
+    quiz_data = PersonalizedQuizService.generate_personalized_quiz(user_id, topic_filter)
+    
+    if not quiz_data:
+        return jsonify({"error": "Failed to generate personalized quiz"}), 500
+        
+    return jsonify(quiz_data), 200
+
+@quizzes_bp.route('/weekly-performance', methods=['GET'])
+def get_weekly_performance():
+    """Get student's performance aggregated for a specific week."""
+    user_id = request.args.get('user_id', type=int)
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+    
+    if not user_id:
+        return jsonify({"error": "User ID is required"}), 400
+    
+    if not start_date_str or not end_date_str:
+        return jsonify({"error": "start_date and end_date are required"}), 400
+    
+    try:
+        start_date = datetime.fromisoformat(start_date_str)
+        end_date = datetime.fromisoformat(end_date_str)
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DD)"}), 400
+    
+    performance = PersonalizedQuizService.get_weekly_performance(user_id, start_date, end_date)
+    return jsonify(performance), 200
+
+@quizzes_bp.route('/generate-weekly-test', methods=['POST'])
+def generate_weekly_test():
+    """Generate a personalized weekly test based on student's performance."""
+    data = request.get_json()
+    user_id = data.get('user_id')
+    num_questions = data.get('num_questions', 10)  # Default to 10 questions
+    start_date_str = data.get('start_date')
+    end_date_str = data.get('end_date')
+    
+    if not user_id:
+        return jsonify({"error": "User ID is required"}), 400
+    
+    if not start_date_str or not end_date_str:
+        return jsonify({"error": "start_date and end_date are required"}), 400
+    
+    try:
+        start_date = datetime.fromisoformat(start_date_str)
+        end_date = datetime.fromisoformat(end_date_str)
+    except ValueError:
+        return jsonify({"error": "Invalid date format. Use ISO format (YYYY-MM-DD)"}), 400
+    
+    quiz_data = PersonalizedQuizService.generate_weekly_test(user_id, num_questions, start_date, end_date)
+    
+    if not quiz_data:
+        return jsonify({"error": "Failed to generate weekly test"}), 500
+    
+    return jsonify(quiz_data), 201
 
 @quizzes_bp.route('/<int:quiz_id>', methods=['GET'])
 def get_quiz(quiz_id):

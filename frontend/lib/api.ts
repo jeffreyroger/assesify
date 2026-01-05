@@ -179,6 +179,31 @@ const api = {
         return handleResponse(response);
     },
 
+    getWeeklyPerformance: async (userId: number, startDate: string, endDate: string) => {
+        const response = await fetch(
+            `${API_URL}/quizzes/weekly-performance?user_id=${userId}&start_date=${startDate}&end_date=${endDate}`,
+            {
+                method: "GET",
+                headers: getHeaders(),
+            }
+        );
+        return handleResponse(response);
+    },
+
+    generateWeeklyTest: async (userId: number, numQuestions: number, startDate: string, endDate: string) => {
+        const response = await fetch(`${API_URL}/quizzes/generate-weekly-test`, {
+            method: "POST",
+            headers: getHeaders(),
+            body: JSON.stringify({
+                user_id: userId,
+                num_questions: numQuestions,
+                start_date: startDate,
+                end_date: endDate
+            }),
+        });
+        return handleResponse(response);
+    },
+
     getTeacherAnalytics: async () => {
         const response = await fetch(`${API_URL}/teacher/analytics`, {
             method: "GET",
