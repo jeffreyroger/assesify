@@ -225,28 +225,34 @@ def recommend_actions(agg_df: pd.DataFrame, student_id: str, top_n: int = 3) -> 
 
 
 def build_personalized_prompt(action: TopicAction, n_questions: int = 5, tone: str = "encouraging") -> str:
-    """Build a Gemini prompt tailored to the student's action and weaknesses.
+    """Build a Gemini prompt tailored to the student's action and weaknesses."""
+    prompt = f"""You are an elite educational assessment expert. Create {n_questions} high-fidelity, professional multiple-choice questions for the student.
 
-    The prompt requests JSON with items including question, choices (4), correct answer, explanation, difficulty, and learning_objective.
-    It also includes a short note with the student's profile to increase personalization.
-    """
-    prompt = (
-        "You are an expert educational content writer. Return ONLY valid JSON with a top-level object containing a 'quiz' array. "
-        "Each quiz item must be an object: {\n  'question': str,\n  'choices': [str],\n  'answer': str,\n  'explanation': str,\n  'difficulty': str,\n  'learning_objective': str\n}\n"
-        f"Topic: {action.topic}\n"
-        f"Subtopic: {action.subtopic}\n"
-        f"Difficulty: {action.recommended_difficulty}\n"
-        f"Learning objective: {action.learning_objective}\n"
-        f"Student behavior note: {action.reason}. Weaknesses: {', '.join(action.weaknesses) if action.weaknesses else 'none'}\n"
-        f"Tone: {tone}\n"
-        f"Number of questions: {n_questions}\n\n"
-        "Requirements:\n"
-        "- Align each question with the learning objective and weaknesses.\n"
-        "- Provide 4 plausible distractors for each MCQ.\n"
-        "- Ensure questions vary in scaffolded difficulty and align to the requested difficulty level.\n"
-        "- For each question include a one-sentence explanation of the correct answer.\n"
-        "Return only valid JSON."
-    )
+**Topic**: {action.topic}
+**Subtopic**: {action.subtopic}
+**Target Difficulty**: {action.recommended_difficulty.capitalize()}
+**Learning Objective**: {action.learning_objective}
+
+**UNCOMPROMISING QUALITY STANDARDS**:
+1. **Standalone Integrity**: Every question must be 100% self-contained. ABSOLUTELY NO references to passages, texts, or page numbers.
+2. **Professional Language**: Use clear, academic tone. No conversational filler like "As we can see".
+3. **Concept-Centered**: Test deep understanding of {action.topic}, not just word matching.
+4. **Plausible Distractors**: Wrong options must represent common misconceptions.
+5. **No Meta-References**: **NEVER** use phrases like "Based on this lesson" or "In this topic".
+
+**JSON Format**:
+{{
+  "quiz": [
+    {{
+      "question": "A professionally phrased question text?",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correct_answer": "Option A",
+      "answer": "A pedagogical explanation of the correct choice.",
+      "hint": "A subtle thinking guide."
+    }}
+  ]
+}}
+"""
     return prompt
 
 

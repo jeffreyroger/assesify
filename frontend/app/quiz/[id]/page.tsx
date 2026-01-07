@@ -186,8 +186,8 @@ export default function LearnPage() {
                             let variantClass = "border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-zinc-800";
 
                             if (showResult) {
-                                if (isCorrect) variantClass = "bg-brand-green/20 border-brand-green text-brand-green ring-0";
-                                else if (isSelected && !isCorrect) variantClass = "bg-brand-red/20 border-brand-red text-brand-red ring-0";
+                                if (isCorrect) variantClass = "bg-brand-green/20 border-brand-green text-brand-green ring-0 shadow-[0_0_20px_rgba(34,197,94,0.2)]";
+                                else if (isSelected && !isCorrect) variantClass = "bg-brand-red/20 border-brand-red text-brand-red ring-0 shadow-[0_0_20px_rgba(239,68,68,0.2)]";
                                 else if (!isSelected && !isCorrect) variantClass = "opacity-50";
                             } else if (isSelected) {
                                 variantClass = "border-brand-blue-dark bg-brand-blue/10 ring-2 ring-brand-blue";
@@ -203,16 +203,34 @@ export default function LearnPage() {
                                         variantClass
                                     )}
                                 >
-                                    <span className="text-xl font-bold text-slate-700 dark:text-slate-200">{opt}</span>
+                                    <span className="text-xl font-bold flex items-center justify-between">
+                                        <span>
+                                            <span className="mr-3 text-slate-400 group-hover:text-slate-600">{String.fromCharCode(65 + idx)}</span>
+                                            <span className="text-slate-700 dark:text-zinc-200">{opt}</span>
+                                        </span>
+                                        {showResult && isCorrect && <span className="text-brand-green">✓</span>}
+                                        {showResult && isSelected && !isCorrect && <span className="text-brand-red">✕</span>}
+                                    </span>
                                 </button>
                             )
                         })}
                     </div>
 
+                    <div className="flex justify-center mt-4">
+                        <button
+                            onClick={() => alert(`💡 Hint: ${currentQuestion.hint}`)}
+                            className="flex items-center gap-2 text-slate-400 hover:text-brand-yellow font-bold text-sm transition-colors"
+                        >
+                            <span>Need a hint?</span>
+                        </button>
+                    </div>
+
                     {status === 'review' && (
-                        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl animate-in fade-in">
-                            <p className="text-sm font-bold text-blue-600 dark:text-blue-400 mb-1">Explanation</p>
-                            <p className="text-slate-700 dark:text-slate-300">{currentQuestion.answer}</p>
+                        <div className="p-6 bg-slate-50 dark:bg-zinc-800/50 border-2 border-dashed border-slate-200 dark:border-zinc-700 rounded-3xl animate-in slide-in-from-bottom-4">
+                            <h3 className="text-sm font-black uppercase tracking-tighter text-slate-400 mb-2">Pedagogical Insight</h3>
+                            <p className="text-lg font-medium text-slate-700 dark:text-zinc-300 leading-relaxed italic">
+                                "{currentQuestion.answer}"
+                            </p>
                         </div>
                     )}
                 </div>

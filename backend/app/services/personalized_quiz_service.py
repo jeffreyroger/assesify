@@ -51,13 +51,17 @@ class PersonalizedQuizService:
         
         if df.empty:
             # Fallback: Generate a general quiz from a lesson if no history exists
-            # For now, let's just pick a random lesson
-            lesson = Lesson.query.first()
+            if topic_filter:
+                lesson = Lesson.query.filter(Lesson.topic.ilike(f"%{topic_filter}%")).first()
+            
+            if not lesson:
+                lesson = Lesson.query.first()
+                
             if not lesson:
                 return None
             
             from ml.train.quiz_gen import generate_quiz
-            questions = generate_quiz(lesson.content)
+            questions = generate_quiz(lesson.content, difficulty="medium", num_questions=5)
             
             new_quiz = QuizModel(
                 lesson_id=lesson.id,
@@ -94,21 +98,29 @@ class PersonalizedQuizService:
             for q in questions:
                 if 'choices' in q and 'options' not in q:
                     q['options'] = q.pop('choices')
-            
-            # Find a matching lesson for the topic
+        except Exception as e:
+            print(f"Personalized AI generation failed, using Smart Fallback. Error: {e}")
+            # Fallback to standard smart generation using the lesson content
             lesson = Lesson.query.filter(Lesson.topic == action.topic).first()
-            
+            if lesson:
+                from ml.train.quiz_gen import generate_quiz
+                questions = generate_quiz(lesson.content, difficulty=action.recommended_difficulty, num_questions=5)
+            else:
+                return None
+
+        # Create and return the quiz
+        if questions:
+            # Re-fetch lesson just in case
+            lesson = Lesson.query.filter(Lesson.topic == action.topic).first()
             new_quiz = QuizModel(
                 lesson_id=lesson.id if lesson else None,
                 questions=questions
             )
             db.session.add(new_quiz)
             db.session.commit()
-            
             return new_quiz.to_dict()
-        except Exception as e:
-            print(f"Error generating personalized quiz: {e}")
-            return None
+        
+        return None
 
     @staticmethod
     def get_weekly_performance(user_id: int, start_date: datetime, end_date: datetime) -> Dict[str, Any]:
@@ -279,44 +291,26 @@ class PersonalizedQuizService:
                 continue
             
             # Create a refined prompt for this topic
-            prompt = f"""You are an expert quiz creator. Generate {question_count} high-quality multiple-choice questions for the topic: {topic_name}
+            prompt = f"""You are an elite educational assessment expert. Generate {question_count} high-fidelity, professional multiple-choice questions for: {topic_name}.
 
 **Topic Context**: {topic_data['subtopic']}
-**Student Performance**: {topic_data['accuracy']}% accuracy (needs improvement)
+**Target Mastery**: {topic_data['accuracy']}% (Personalize for improvement)
 
-**CRITICAL INSTRUCTIONS**:
-1. Create CLEAN, PROFESSIONAL questions - NO raw text from textbooks or course materials
-2. Questions should test UNDERSTANDING, not memorization of specific passages
-3. Each question must be CLEAR and CONCISE
-4. Options should be plausible and well-formatted
-5. NO references to "the passage", "the text", or course codes like "UNIT I" or "Page 5"
-6. Focus on CONCEPTS, PRINCIPLES, and APPLICATION
+**ASSESSMENT STANDARDS**:
+1. **100% Standalone**: Every question must be self-contained. NO references to "the passage" or external texts.
+2. **Concept-Focus**: Test principles and application, not text verbatim.
+3. **Elite Tone**: Use professional, clear, assessments-oriented language.
+4. **Distractors**: 4 distinct, plausible options. 
 
-**Example of GOOD question**:
-"Which of the following best describes a non-functional requirement in software engineering?"
-A. The system must allow users to reset their password
-B. The system must generate monthly reports  
-C. The system must respond to user requests within 2 seconds
-D. The system must store customer details in a database
-
-**Example of BAD question** (DO NOT create questions like this):
-"What is the main idea of the following passage: [long textbook excerpt]?"
-
-**Your Task**: Create {question_count} questions that:
-- Test key concepts in {topic_name}
-- Are appropriate for students with {topic_data['accuracy']}% mastery
-- Have 4 clear, distinct options (A, B, C, D)
-- Include brief explanations for the correct answer
-
-Return ONLY valid JSON in this exact format:
+**JSON Format**:
 {{
   "quiz": [
     {{
-      "question": "Clear, concise question text?",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correct_answer": "Option A",
-      "answer": "Brief explanation of why this is correct",
-      "hint": "Helpful hint for the student"
+      "question": "Question text?",
+      "options": ["A", "B", "C", "D"],
+      "correct_answer": "A",
+      "answer": "Explanation of correct concept.",
+      "hint": "Clue for thinking."
     }}
   ]
 }}
@@ -334,7 +328,15 @@ Return ONLY valid JSON in this exact format:
                 
                 all_questions.extend(questions[:question_count])
             except Exception as e:
-                print(f"Error generating questions for topic {topic_name}: {e}")
+                print(f"AI generation failed for topic {topic_name}, using Smart Fallback. Error: {e}")
+                # Fallback to smart keyword-based generation
+                lesson = Lesson.query.filter(Lesson.topic == topic_name).first()
+                if lesson:
+                    from ml.train.quiz_gen import generate_quiz
+                    fallback_qs = generate_quiz(lesson.content, num_questions=question_count)
+                    for q in fallback_qs:
+                        q['topic'] = topic_name
+                    all_questions.extend(fallback_qs)
                 continue
         
         if not all_questions:
