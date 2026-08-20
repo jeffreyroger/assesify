@@ -1,0 +1,152 @@
+﻿{
+    "get_classes_student":  {
+                                "ok":  true,
+                                "body":  {
+                                             "value":  [
+                                                           {
+                                                               "code":  "UFJB8B",
+                                                               "color":  "bg-brand-blue",
+                                                               "id":  1,
+                                                               "name":  "Smoke Class",
+                                                               "progress":  0,
+                                                               "section":  "A",
+                                                               "teacher":  "Smoke Teacher"
+                                                           }
+                                                       ],
+                                             "Count":  1
+                                         },
+                                "status":  200
+                            },
+    "student_join":  {
+                         "ok":  true,
+                         "body":  {
+                                      "class":  {
+                                                    "id":  1,
+                                                    "name":  "Smoke Class",
+                                                    "section":  "A",
+                                                    "teacher":  "Smoke Teacher"
+                                                },
+                                      "msg":  "Successfully joined Smoke Class"
+                                  },
+                         "status":  200
+                     },
+    "upload_avatar":  {
+                          "ok":  false,
+                          "body":  "A parameter cannot be found that matches parameter name \u0027Form\u0027.",
+                          "status":  0
+                      },
+    "upload_material":  {
+                            "ok":  false,
+                            "body":  "A parameter cannot be found that matches parameter name \u0027Form\u0027.",
+                            "status":  0
+                        },
+    "register_student":  {
+                             "ok":  true,
+                             "body":  {
+                                          "msg":  "User registered successfully"
+                                      },
+                             "status":  200
+                         },
+    "register_teacher":  {
+                             "ok":  true,
+                             "body":  {
+                                          "msg":  "User registered successfully"
+                                      },
+                             "status":  200
+                         },
+    "create_class":  {
+                         "ok":  true,
+                         "body":  {
+                                      "code":  "UFJB8B",
+                                      "id":  1,
+                                      "msg":  "Class created"
+                                  },
+                         "status":  200
+                     },
+    "get_recent_quizzes":  {
+                               "ok":  true,
+                               "body":  {
+                                            "value":  [
+
+                                                      ],
+                                            "Count":  0
+                                        },
+                               "status":  200
+                           },
+    "get_classes_teacher":  {
+                                "ok":  true,
+                                "body":  {
+                                             "value":  [
+                                                           {
+                                                               "code":  "UFJB8B",
+                                                               "color":  "bg-brand-purple",
+                                                               "id":  1,
+                                                               "name":  "Smoke Class",
+                                                               "progress":  0,
+                                                               "section":  "A",
+                                                               "teacher":  "Smoke Teacher"
+                                                           }
+                                                       ],
+                                             "Count":  1
+                                         },
+                                "status":  200
+                            },
+    "login_student":  {
+                          "ok":  true,
+                          "body":  {
+                                       "access_token":  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc4NzIzOTgyNiwianRpIjoiZjQ2N2NiMzgtM2Y1Yy00ZjVhLWExZTAtNDNiY2ZlNzNhNTYzIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjQiLCJuYmYiOjE3ODcyMzk4MjYsImNzcmYiOiIwODhjZWRiMS0zY2FlLTQ4MWQtYTU2ZC1hZGYxZGY5ZjY0YTIiLCJleHAiOjE3ODcyNDA3MjZ9.sBplbXansv5sdaCcZWpsL11dxRetS4SwqWBHn5hEKRY",
+                                       "created_at":  "2026-08-20T15:30:25.737681",
+                                       "diamonds":  0,
+                                       "email":  "smoke.student@example.com",
+                                       "full_name":  "Smoke Student",
+                                       "health":  5,
+                                       "id":  4,
+                                       "is_teacher":  false,
+                                       "last_active_date":  null,
+                                       "location":  null,
+                                       "major":  null,
+                                       "profile_pic":  null,
+                                       "streak":  0
+                                   },
+                          "status":  200
+                      },
+    "teacher_analytics":  {
+                              "ok":  true,
+                              "body":  {
+                                           "value":  [
+
+                                                     ],
+                                           "Count":  0
+                                       },
+                              "status":  200
+                          },
+    "login_teacher":  {
+                          "ok":  true,
+                          "body":  {
+                                       "access_token":  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc4NzIzOTgyNSwianRpIjoiZmI2NTRjZDQtZjEwMS00MTJmLTkxODQtYTJlMGJhOWM4M2RlIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6IjMiLCJuYmYiOjE3ODcyMzk4MjUsImNzcmYiOiIxMWYwNjY0MS0yOGIzLTQwOGEtYTExZS05OTQ0ODZiM2ZiZWIiLCJleHAiOjE3ODcyNDA3MjV9.gpX_c7_UYM2AMFh-z-P_YzJvbm68z4Dx6huCwedrxNU",
+                                       "created_at":  "2026-08-20T15:30:25.442515",
+                                       "diamonds":  0,
+                                       "email":  "smoke.teacher@example.com",
+                                       "full_name":  "Smoke Teacher",
+                                       "health":  5,
+                                       "id":  3,
+                                       "is_teacher":  true,
+                                       "last_active_date":  null,
+                                       "location":  null,
+                                       "major":  null,
+                                       "profile_pic":  null,
+                                       "streak":  0
+                                   },
+                          "status":  200
+                      },
+    "get_lessons":  {
+                        "ok":  true,
+                        "body":  {
+                                     "value":  [
+
+                                               ],
+                                     "Count":  0
+                                 },
+                        "status":  200
+                    }
+}

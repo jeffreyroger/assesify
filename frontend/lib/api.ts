@@ -1,4 +1,4 @@
-export const API_URL = "http://127.0.0.1:5000/api";
+﻿export const API_URL = "http://127.0.0.1:5000/api";
 
 export const storeToken = (token: string) => {
     if (typeof window !== "undefined") {
@@ -36,10 +36,9 @@ export const getUser = () => {
 
 const getHeaders = () => {
     const token = getToken();
-    return {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return headers;
 };
 
 const handleResponse = async (response: Response) => {
@@ -107,13 +106,14 @@ const api = {
         return handleResponse(response);
     },
 
-    inviteStudent: async (token: string, data: { email: string; full_name: string }) => {
+    inviteStudent: async (token: string | null, data: { email: string; full_name: string }) => {
+        const t = token || getToken();
+        const headers: Record<string,string> = { "Content-Type": "application/json" };
+        if (t) headers["Authorization"] = `Bearer ${t}`;
+
         const response = await fetch(`${API_URL}/teacher/invite`, {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-            },
+            headers,
             body: JSON.stringify(data),
         });
         return handleResponse(response);
@@ -139,7 +139,7 @@ const api = {
     uploadMaterial: async (formData: FormData) => {
         const token = getToken();
         // Do not set Content-Type header for FormData, let browser set boundary
-        const headers: any = {};
+        const headers: Record<string,string> = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
 
         const response = await fetch(`${API_URL}/teacher/materials`, {
@@ -168,7 +168,7 @@ const api = {
 
     uploadAvatar: async (formData: FormData) => {
         const token = getToken();
-        const headers: any = {};
+        const headers: Record<string,string> = {};
         if (token) headers["Authorization"] = `Bearer ${token}`;
 
         const response = await fetch(`${API_URL}/auth/upload-avatar`, {
