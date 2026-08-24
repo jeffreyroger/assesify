@@ -105,8 +105,8 @@ def invite_student():
 
 @teacher_bp.route("/materials", methods=["POST"])
 @jwt_required()
-# Note: this endpoint accepts uploads and processes them synchronously for now
 def upload_material():
+    # Note: this endpoint accepts uploads and processes them synchronously for now
     try:
         current_user_id = get_jwt_identity()
         teacher = User.query.get(int(current_user_id)) if current_user_id else None
@@ -122,15 +122,10 @@ def upload_material():
             return jsonify({"msg": "Invalid filename"}), 400
 
         ext = filename.rsplit(".", 1)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            return jsonify({"msg": "Unsupported file type"}), 400
-
-        # Check file size
-        file.seek(0, os.SEEK_END)
-        size = file.tell()
-        file.seek(0)
-        if size > MAX_FILE_SIZE:
-            return jsonify({"msg": "File too large"}), 400
+        from app.core.uploads import validate_upload_stream
+        ok, msg = validate_upload_stream(filename, file.stream)
+        if not ok:
+            return jsonify({"msg": msg}), 400
 
         # Save file to backend/uploads
         project_root = os.path.abspath(os.path.join(current_app.root_path, ".."))

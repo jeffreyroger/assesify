@@ -43,13 +43,12 @@ def create_material():
     if not file or not file.filename:
         return _error("VALIDATION_ERROR", "file is required")
     filename = secure_filename(file.filename)
+    # Validate using content-aware checks
+    from app.core.uploads import validate_upload_stream
+    ok, msg = validate_upload_stream(filename, file.stream)
+    if not ok:
+        return _error("VALIDATION_ERROR", msg)
     extension = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    if extension not in ALLOWED_EXTENSIONS:
-        return _error("VALIDATION_ERROR", "Only PDF, DOCX, and TXT files are supported.")
-    file.seek(0, os.SEEK_END)
-    if file.tell() > MAX_FILE_SIZE:
-        return _error("VALIDATION_ERROR", "The upload exceeds the 25 MB limit.")
-    file.seek(0)
     upload_dir = os.path.join(os.path.dirname(current_app.root_path), "uploads")
     os.makedirs(upload_dir, exist_ok=True)
     saved_name = f"{user.id}_{int(time.time())}_{filename}"

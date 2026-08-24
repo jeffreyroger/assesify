@@ -32,3 +32,32 @@ def build_quiz_prompt(topic: str, difficulty: str = "medium", n_questions: int =
 def example_gemini_payload(topic: str = "algebra", difficulty: str = "medium") -> Dict:
     prompt = build_quiz_prompt(topic, difficulty)
     return {"prompt": prompt, "model": "gemini-3.5", "max_tokens": 800}
+
+
+# Backwards-compatible thin wrapper expected by older tests/code
+def build_personalized_mcq_prompt(topic: str,
+                                  subtopic: str | None = None,
+                                  learning_objective: str | None = None,
+                                  difficulty: str = "medium",
+                                  weaknesses: list | None = None,
+                                  n_questions: int = 5,
+                                  tone: str = "neutral") -> str:
+    """Compatibility wrapper that composes a personalized prompt while delegating core
+    wording to build_quiz_prompt. This preserves the refactored build_quiz_prompt
+    implementation while providing the older API expected by tests.
+    """
+    # Start with the base quiz prompt for the topic/difficulty/number/tone
+    base = build_quiz_prompt(topic=topic, difficulty=difficulty, n_questions=n_questions, tone=tone)
+
+    # Append personalized fields in the format older callers/tests expect
+    parts = [base]
+    if subtopic:
+        parts.append(f"Subtopic: {subtopic}")
+    if learning_objective:
+        parts.append(f"Learning objective: {learning_objective}")
+    if weaknesses:
+        parts.append("Student weaknesses: " + ", ".join(str(w) for w in weaknesses))
+    # Ensure Number of questions appears explicitly for the older prompt format
+    parts.append(f"Number of questions: {n_questions}")
+
+    return "\n".join(parts)

@@ -3,8 +3,9 @@ import time
 from flask import Blueprint, request, jsonify, current_app
 from werkzeug.utils import secure_filename
 from app.models.users import db, User
-from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity, decode_token, get_jwt
 from app.core.security import hash_password
+from app.core.rate_limit import ratelimit_for_auth
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -54,6 +55,7 @@ def get_avatar(filename):
     return send_from_directory(avatar_dir, filename)
 
 @auth_bp.route("/register", methods=["POST"])
+@ratelimit_for_auth(limit=60)
 def register():
     data = request.json
     if User.query.filter_by(email=data["email"]).first():
@@ -69,7 +71,28 @@ def register():
     db.session.commit()
     return jsonify({"msg": "User registered successfully"}), 201
 
+
+# Helper: persist refresh token jti in DB for rotation / revocation
+from app.models.refresh_token import RefreshToken
+from datetime import datetime
+
+
+def _store_refresh_token(token: str, user_id: int):
+    try:
+        decoded = decode_token(token)
+        jti = decoded.get("jti")
+        exp = decoded.get("exp")
+        if jti and exp:
+            expires_at = datetime.utcfromtimestamp(exp)
+            rt = RefreshToken(jti=jti, user_id=int(user_id), expires_at=expires_at)
+            db.session.add(rt)
+            db.session.commit()
+    except Exception:
+        # best-effort: do not fail login if storage fails
+        current_app.logger.exception("Failed to store refresh token")
+
 @auth_bp.route("/login", methods=["POST"])
+@ratelimit_for_auth(limit=60)
 def login():
     data = request.json
     user = User.query.filter_by(email=data["email"]).first()
@@ -78,6 +101,8 @@ def login():
 
     access_token = create_access_token(identity=str(user.id))
     refresh_token = create_refresh_token(identity=str(user.id))
+    # persist refresh token jti for rotation/revocation
+    _store_refresh_token(refresh_token, user.id)
     user_data = user.to_dict()
     user_data["access_token"] = access_token
     user_data["refresh_token"] = refresh_token
@@ -86,7 +111,22 @@ def login():
 @auth_bp.route("/refresh", methods=["POST"])
 @jwt_required(refresh=True)
 def refresh():
-    return jsonify({"access_token": create_access_token(identity=get_jwt_identity())})
+    # Revoke the incoming refresh token and issue a new one (rotation)
+    try:
+        current = get_jwt()
+        incoming_jti = current.get("jti")
+        if incoming_jti:
+            row = RefreshToken.query.filter_by(jti=incoming_jti, revoked=False).first()
+            if row:
+                row.revoked = True
+                db.session.commit()
+    except Exception:
+        current_app.logger.exception("Failed to revoke incoming refresh token")
+
+    access_token = create_access_token(identity=get_jwt_identity())
+    new_refresh = create_refresh_token(identity=get_jwt_identity())
+    _store_refresh_token(new_refresh, int(get_jwt_identity()))
+    return jsonify({"access_token": access_token, "refresh_token": new_refresh})
 
 @auth_bp.route("/karmayogi/link", methods=["POST"])
 @jwt_required()

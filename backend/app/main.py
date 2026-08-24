@@ -42,12 +42,13 @@ def create_app():
     # In production set FRONTEND_URL to the frontend host and remove allow_headers or set supports_credentials=True appropriately.
     frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
     if frontend_url:
+        # Restrict CORS to the configured frontend and enable credentials (cookies) when set
         CORS(app, resources={r"/api/*": {"origins": frontend_url}}, supports_credentials=True)
     else:
         # Allow all origins for local development (no credentials)
-        CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)  # Enable CORS for API routes
+        CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)
 
-    # Fallback: ensure responses include CORS headers for local dev frontend origins
+    # Fallback: ensure responses include CORS headers only for allowed origin
     request_counts = {"requests_total": 0, "requests_errors_total": 0, "request_duration_ms_total": 0.0}
 
     @app.before_request
@@ -58,7 +59,8 @@ def create_app():
     @app.after_request
     def add_cors_headers(response):
         origin = request.headers.get("Origin")
-        if origin:
+        # Only reflect the configured frontend URL
+        if origin and frontend_url and origin == frontend_url:
             response.headers["Access-Control-Allow-Origin"] = frontend_url
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
             response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
@@ -73,9 +75,36 @@ def create_app():
                                    "method": request.method, "path": request.path,
                                    "status": response.status_code, "duration_ms": round(duration, 2)}))
         return response
+        duration = (time.perf_counter() - getattr(request, "started_at", time.perf_counter())) * 1000
+        request_counts["requests_total"] += 1
+        request_counts["request_duration_ms_total"] += duration
+        if response.status_code >= 400:
+            request_counts["requests_errors_total"] += 1
+        response.headers["X-Request-ID"] = request.request_id
+        app.logger.info(json.dumps({"event": "request", "request_id": request.request_id,
+                                   "method": request.method, "path": request.path,
+                                   "status": response.status_code, "duration_ms": round(duration, 2)}))
+        return response
     db.init_app(app)
     Migrate(app, db)
-    JWTManager(app)
+    jwt = JWTManager(app)
+
+    # Register blocklist loader to prevent reuse of revoked refresh tokens
+    from app.models.refresh_token import RefreshToken
+
+    @jwt.token_in_blocklist_loader
+    def check_if_token_revoked(jwt_header, jwt_payload):
+        try:
+            jti = jwt_payload.get("jti")
+            if not jti:
+                return False
+            row = RefreshToken.query.filter_by(jti=jti).first()
+            # If token is present and revoked, block it. If absent, allow (access tokens may not be stored).
+            return bool(row and row.revoked)
+        except Exception:
+            # On DB errors, default to not blocked so as not to break healthy flows
+            app.logger.exception("Error checking token blocklist")
+            return False
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     if teacher_bp:
