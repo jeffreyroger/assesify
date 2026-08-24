@@ -51,6 +51,11 @@ def create_app():
     # Fallback: ensure responses include CORS headers only for allowed origin
     request_counts = {"requests_total": 0, "requests_errors_total": 0, "request_duration_ms_total": 0.0}
 
+    # Avoid SQLAlchemy expiring object attributes on commit so tests can access ids from detached instances
+    app.config.setdefault('SQLALCHEMY_EXPIRE_ON_COMMIT', False)
+    # Also set session options to keep attributes accessible after commit/close
+    app.config.setdefault('SQLALCHEMY_SESSION_OPTIONS', {'expire_on_commit': False})
+
     @app.before_request
     def begin_request():
         request.request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))

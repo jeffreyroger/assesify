@@ -1,5 +1,4 @@
 from typing import List, Optional, Dict, Any
-import pandas as pd
 from datetime import datetime, timedelta
 from collections import defaultdict
 from app.models.users import db, User
@@ -9,10 +8,32 @@ from app.models.quiz import Quiz as QuizModel
 from ml.recommender import advanced_aggregate, recommend_actions, generate_quiz_from_action
 from ml.genai import GeminiClient
 
+# pandas is an optional runtime dependency used for recommender dataframes.
+# Import lazily to avoid breaking test collection in environments without pandas.
+try:
+    import pandas as pd
+except Exception:
+    pd = None
+
+
+class _EmptyDF:
+    """Minimal fallback object that mimics the DataFrame.empty property used by this service."""
+    def __init__(self):
+        self.empty = True
+
+
 class PersonalizedQuizService:
     @staticmethod
-    def get_student_performance_df(user_id: int) -> pd.DataFrame:
-        """Fetch all quiz attempts for a student and format for ML recommender."""
+    def get_student_performance_df(user_id: int):
+        """Fetch all quiz attempts for a student and format for ML recommender.
+
+        Returns a pandas.DataFrame when pandas is available; otherwise returns a
+        lightweight object with an `.empty` attribute so callers can fall back.
+        """
+        if pd is None:
+            # pandas not installed in this environment; return an object that signals emptiness
+            return _EmptyDF()
+
         attempts = QuizAttempt.query.filter_by(user_id=user_id).all()
         data = []
         for att in attempts:

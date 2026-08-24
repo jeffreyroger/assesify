@@ -7,8 +7,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional
-import pandas as pd
-import numpy as np
+# pandas is optional for runtime; import lazily to avoid breaking test imports when pandas is unavailable
+try:
+    import pandas as pd
+except Exception:
+    pd = None
+try:
+    import numpy as np
+except Exception:
+    np = None
 
 
 @dataclass

@@ -102,31 +102,6 @@ def get_recent_quizzes():
         })
     return jsonify(results)
 
-# (submit_quiz remains unchanged below)
-
-@quizzes_bp.route('/<int:quiz_id>', methods=['GET'])
-def get_quiz(quiz_id):
-    quiz = Quiz.query.get_or_404(quiz_id)
-    return jsonify(quiz.to_dict())
-
-@quizzes_bp.route('/recent', methods=['GET'])
-def get_recent_quizzes():
-    # Return last 5 quizzes
-    quizzes = Quiz.query.order_by(Quiz.created_at.desc()).limit(5).all()
-    results = []
-    for q in quizzes:
-        # Get lesson title
-        from app.models.lesson import Lesson
-        lesson = Lesson.query.get(q.lesson_id)
-        results.append({
-            "id": q.id,
-            "title": lesson.title if lesson else f"Quiz {q.id}",
-            "topic": lesson.topic if lesson else "General",
-            "questions_count": len(q.questions) if q.questions else 0,
-            "created_at": q.created_at.isoformat()
-        })
-    return jsonify(results)
-
 @quizzes_bp.route('/<int:quiz_id>/submit', methods=['POST'])
 @jwt_required()
 def submit_quiz(quiz_id):
@@ -201,7 +176,7 @@ def submit_quiz(quiz_id):
         user.diamonds += diamonds_earned
 
     db.session.commit()
-    refresh_student_mastery(user_id)
+    refresh_student_mastery(auth_user_id)
     
     return jsonify({
         "message": "Quiz submitted successfully",

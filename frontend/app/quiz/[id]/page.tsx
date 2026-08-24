@@ -28,6 +28,9 @@ export default function LearnPage() {
     const [status, setStatus] = useState<"idle" | "review" | "complete">("idle");
     const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState({ xp: 0, correct: 0 });
+    const [attemptId, setAttemptId] = useState<number | null>(null);
+    const [answersMap, setAnswersMap] = useState<Record<string, string>>({});
+    const [savingMap, setSavingMap] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         if (!quizId) return;
@@ -35,21 +38,81 @@ export default function LearnPage() {
         // Fetch quiz by ID
         fetch(`http://127.0.0.1:5000/api/quizzes/${quizId}`)
             .then(res => res.json())
-            .then(data => {
+            .then(async data => {
                 if (data.questions && Array.isArray(data.questions)) {
-                    // Filter or validate questions if needed
                     setQuestions(data.questions);
                 }
                 setLoading(false);
+
+                // Start attempt for autosave if supported
+                try {
+                    const resp = await fetch(`http://127.0.0.1:5000/api/v1/quizzes/${quizId}/attempts`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    if (resp.ok) {
+                        const j = await resp.json();
+                        setAttemptId(j.id);
+                    }
+                } catch (e) {
+                    // best-effort; continue without attemptId
+                    console.warn('Could not start attempt for autosave', e);
+                }
             })
             .catch(err => {
                 console.error("Failed to fetch quiz", err);
                 setLoading(false);
             });
-    }, []);
+    }, [quizId]);
+
+    // Restore selected option when navigating between questions using answersMap
+    useEffect(() => {
+        const cur = questions[currentIndex];
+        if (!cur) return;
+        const qKey = cur.id ? String(cur.id) : String(currentIndex);
+        const prev = answersMap[qKey];
+        setSelectedOption(prev || null);
+    }, [currentIndex, answersMap, questions]);
+
+    // Keyboard navigation: Left = previous, Right/Enter = check/continue
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'ArrowLeft') {
+                if (currentIndex > 0) {
+                    setCurrentIndex(c => c - 1);
+                    setStatus('idle');
+                }
+            } else if (e.key === 'ArrowRight') {
+                // If idle and an option is selected, act as Check
+                if (status === 'idle' && selectedOption) {
+                    handleCheck();
+                } else {
+                    // behave as Continue
+                    handleNext();
+                }
+            } else if (e.key === 'Enter') {
+                if (status === 'idle') {
+                    handleCheck();
+                } else {
+                    handleNext();
+                }
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [currentIndex, status, selectedOption, questions]);
 
     const submitQuiz = async (finalStats: { correct: number }) => {
         try {
+            // If we have an attemptId, submit via attempt submit endpoint
+            if (attemptId) {
+                            await fetch(`http://127.0.0.1:5000/api/v1/${attemptId}/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                return;
+            }
+
             await fetch(`http://127.0.0.1:5000/api/quizzes/${quizId}/submit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -67,12 +130,39 @@ export default function LearnPage() {
         }
     };
 
+    const saveResponse = async (question: any, selected: string) => {
+        // persist locally
+        const qKey = question.id ? String(question.id) : String(questions.indexOf(question));
+        setAnswersMap(m => ({ ...m, [qKey]: selected }));
+
+        // if we have attemptId and question.id, post to backend
+        if (!attemptId || !question.id) return;
+        const keyIndex = question.options ? question.options.indexOf(selected) : -1;
+        const key = keyIndex >= 0 ? String.fromCharCode(65 + keyIndex) : selected;
+
+        setSavingMap(m => ({ ...m, [qKey]: true }));
+        try {
+            await fetch(`http://127.0.0.1:5000/api/v1/${attemptId}/responses`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question_id: question.id, selected_keys: [key] })
+            });
+        } catch (e) {
+            console.warn('Autosave failed', e);
+        } finally {
+            setSavingMap(m => ({ ...m, [qKey]: false }));
+        }
+    };
+
     const handleCheck = () => {
         if (!selectedOption) return;
 
         const currentQ = questions[currentIndex];
         // Check if correct (case insensitive trim just in case)
         const isCorrect = selectedOption.trim() === currentQ.correct_answer?.trim();
+
+        // save response locally and to backend
+        saveResponse(currentQ, selectedOption);
 
         setStatus("review");
         if (isCorrect) {
@@ -83,8 +173,12 @@ export default function LearnPage() {
     const handleNext = () => {
         if (currentIndex < questions.length - 1) {
             setCurrentIndex(c => c + 1);
-            setSelectedOption(null);
             setStatus("idle");
+            // restore previously selected answer if any
+            const nextQ = questions[currentIndex + 1];
+            const qKey = nextQ && nextQ.id ? String(nextQ.id) : String(currentIndex + 1);
+            const prev = answersMap[qKey];
+            setSelectedOption(prev || null);
         } else {
             setStatus("complete");
             submitQuiz({ correct: stats.correct }); // Use current stats as last check was already added

@@ -6,6 +6,7 @@ from app.schemas.teacher import InviteStudentSchema
 from app.models.lesson import Lesson
 from app.models.quiz import Quiz
 from werkzeug.utils import secure_filename
+from app.core.authz import require_role
 import os
 import time
 
@@ -24,23 +25,18 @@ def ping_teacher():
 
 @teacher_bp.route("/analytics", methods=["GET"])
 @jwt_required()
+@require_role('teacher')
 def get_analytics():
     try:
         current_identity = get_jwt_identity()
-        if not current_identity:
-             return jsonify({"msg": "Invalid token identity"}), 401
-             
         current_user_id = int(current_identity)
         teacher = User.query.get(current_user_id)
-    
-        if not teacher or not teacher.is_teacher:
-            return jsonify({"msg": "Only teachers can access analytics"}), 403
-    
+
         # Fetch lessons created by this teacher
         lessons = Lesson.query.filter_by(teacher_id=current_user_id).all()
         
         analytics_data = []
-        
+
         for lesson in lessons:
             from app.models.submission import QuizAttempt
             for quiz in lesson.quizzes:
@@ -74,12 +70,10 @@ def get_analytics():
 
 @teacher_bp.route("/invite", methods=["POST"])
 @jwt_required()
+@require_role('teacher')
 def invite_student():
     current_user_id = int(get_jwt_identity())
-    teacher = User.query.get(current_user_id)
-
-    if not teacher or not teacher.is_teacher:
-        return jsonify({"msg": "Only teachers can invite students"}), 403
+    # teacher identity already enforced by decorator
 
     try:
         data = InviteStudentSchema(**request.json)
@@ -105,13 +99,12 @@ def invite_student():
 
 @teacher_bp.route("/materials", methods=["POST"])
 @jwt_required()
+@require_role('teacher')
 def upload_material():
     # Note: this endpoint accepts uploads and processes them synchronously for now
     try:
         current_user_id = get_jwt_identity()
         teacher = User.query.get(int(current_user_id)) if current_user_id else None
-        if not teacher or not teacher.is_teacher:
-            return jsonify({"error": {"code": "FORBIDDEN", "message": "Only teachers can upload materials.", "details": {}}}), 403
 
         if "file" not in request.files:
             return jsonify({"msg": "file is required"}), 400
