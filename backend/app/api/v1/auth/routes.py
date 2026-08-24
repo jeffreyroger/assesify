@@ -99,6 +99,24 @@ def login():
     if not user or not user.check_password(data["password"]):
         return jsonify({"msg": "Invalid credentials"}), 401
 
+    # Security improvement: transparently upgrade legacy password hashes to argon2 when available.
+    # Do a best-effort check for argon2 presence and existing hash format; do not fail login if re-hash fails.
+    try:
+        import importlib
+        argon2_spec = importlib.util.find_spec("argon2")
+        if argon2_spec is not None:
+            # If stored hash does not look like an argon2 hash, re-hash using hash_password (which prefers argon2)
+            if not (isinstance(user.password_hash, str) and user.password_hash.lower().startswith("$argon2")):
+                try:
+                    user.password_hash = hash_password(data["password"])
+                    db.session.add(user)
+                    db.session.commit()
+                except Exception:
+                    current_app.logger.exception("Failed to upgrade password hash for user %s", user.id)
+    except Exception:
+        # If anything about the detection fails, skip rehash silently
+        pass
+
     access_token = create_access_token(identity=str(user.id))
     refresh_token = create_refresh_token(identity=str(user.id))
     # persist refresh token jti for rotation/revocation
