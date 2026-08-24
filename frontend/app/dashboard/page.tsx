@@ -80,13 +80,15 @@ export default function DashboardPage() {
         return { startOfWeek, endOfWeek };
     };
 
-    const fetchWeeklyPerformance = async () => {
-        if (!user || user.is_teacher) return;
+    // Takes the user explicitly: the first call happens in the same tick as
+    // setUser(), where the `user` state variable is still null.
+    const fetchWeeklyPerformance = async (forUser: any = user) => {
+        if (!forUser || forUser.is_teacher) return;
 
         const { startOfWeek, endOfWeek } = getWeekDates();
         try {
             const data = await api.getWeeklyPerformance(
-                user.id,
+                forUser.id,
                 startOfWeek.toISOString().split('T')[0],
                 endOfWeek.toISOString().split('T')[0]
             );
@@ -127,7 +129,7 @@ export default function DashboardPage() {
         fetchRecentQuizzes();
         fetchLessons();
         if (u && !u.is_teacher) {
-            fetchWeeklyPerformance();
+            fetchWeeklyPerformance(u);
         }
     }, []);
 

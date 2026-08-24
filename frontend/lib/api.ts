@@ -1,4 +1,29 @@
-﻿export const API_URL = "http://127.0.0.1:5000/api";
+﻿import type { components, operations } from "./api-types";
+
+export const API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_BASE_URL || "http://127.0.0.1:5000";
+export const API_URL = `${API_BASE_URL}/api`;
+
+// Convenience aliases into the OpenAPI-generated schema (spec.md §7.3).
+// These are typing-only; runtime behavior of every call site is unchanged.
+export type User = components["schemas"]["User"];
+export type LoginResponse = components["schemas"]["LoginResponse"];
+export type RegisterRequest = components["schemas"]["RegisterRequest"];
+export type UpdateProfileRequest = components["schemas"]["UpdateProfileRequest"];
+export type RecentQuiz = components["schemas"]["RecentQuiz"];
+export type Quiz = components["schemas"]["Quiz"];
+export type Question = components["schemas"]["Question"];
+export type StartAttemptResponse = components["schemas"]["StartAttemptResponse"];
+export type SaveResponseRequest = components["schemas"]["SaveResponseRequest"];
+export type SaveResponseResult = components["schemas"]["SaveResponseResult"];
+export type SubmitAttemptResponse = components["schemas"]["SubmitAttemptResponse"];
+export type AttemptResult = components["schemas"]["AttemptResult"];
+export type MasteryResponse = components["schemas"]["MasteryResponse"];
+export type GapsResponse = components["schemas"]["GapsResponse"];
+export type RecommendationsResponse = components["schemas"]["RecommendationsResponse"];
+export type ClassSummary = components["schemas"]["ClassSummary"];
+type WeeklyPerformanceResponse =
+    operations["getWeeklyPerformance"]["responses"]["200"]["content"]["application/json"];
 
 export const storeToken = (token: string) => {
     if (typeof window !== "undefined") {
@@ -41,7 +66,8 @@ const getHeaders = () => {
     return headers;
 };
 
-const handleResponse = async (response: Response) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const handleResponse = async <T = any>(response: Response): Promise<T> => {
     if (!response.ok) {
         if (response.status === 401 || response.status === 422) {
             removeToken();
@@ -62,15 +88,10 @@ const api = {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email, password }),
         });
-        return handleResponse(response);
+        return handleResponse<LoginResponse>(response);
     },
 
-    register: async (data: {
-        email: string;
-        full_name: string;
-        password: string;
-        is_teacher: boolean;
-    }) => {
+    register: async (data: RegisterRequest) => {
         const response = await fetch(`${API_URL}/auth/register`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -84,7 +105,7 @@ const api = {
             method: "GET",
             headers: getHeaders(),
         });
-        return handleResponse(response);
+        return handleResponse<ClassSummary[]>(response);
     },
 
     joinClass: async (code: string) => {
@@ -119,13 +140,13 @@ const api = {
         return handleResponse(response);
     },
 
-    updateProfile: async (data: { full_name?: string; major?: string; location?: string }) => {
+    updateProfile: async (data: UpdateProfileRequest) => {
         const response = await fetch(`${API_URL}/auth/update-profile`, {
             method: "PUT",
             headers: getHeaders(),
             body: JSON.stringify(data),
         });
-        return handleResponse(response);
+        return handleResponse<{ msg: string; user: User }>(response);
     },
 
     getProfile: async () => {
@@ -133,7 +154,7 @@ const api = {
             method: "GET",
             headers: getHeaders(),
         });
-        return handleResponse(response);
+        return handleResponse<User>(response);
     },
 
     uploadMaterial: async (formData: FormData) => {
@@ -155,7 +176,7 @@ const api = {
             method: "GET",
             headers: getHeaders(),
         });
-        return handleResponse(response);
+        return handleResponse<RecentQuiz[]>(response);
     },
 
     getLessons: async () => {
@@ -187,7 +208,7 @@ const api = {
                 headers: getHeaders(),
             }
         );
-        return handleResponse(response);
+        return handleResponse<WeeklyPerformanceResponse>(response);
     },
 
     generateWeeklyTest: async (userId: number, numQuestions: number, startDate: string, endDate: string) => {
@@ -209,7 +230,8 @@ const api = {
             method: "GET",
             headers: getHeaders(),
         });
-        return handleResponse(response);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return handleResponse<any[]>(response);
     }
 };
 

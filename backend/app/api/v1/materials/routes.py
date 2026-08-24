@@ -6,13 +6,14 @@ from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 from werkzeug.utils import secure_filename
 
-from app.models.assessment import Material, Question
+from app.models.assessment import Material
 from app.models.lesson import Lesson
 from app.models.quiz import Quiz
 from app.models.users import User, db
 from ml.train.quiz_gen import chunk_text, generate_quiz
 from ml.utils.pdf_utils import extract_text_from_pdf
 from ml.utils.text_cleaner import clean_text
+from app.services.quiz_generation import persist_quiz_questions
 
 materials_bp = Blueprint("materials", __name__)
 ALLOWED_EXTENSIONS = {"pdf", "docx", "txt"}
@@ -99,18 +100,12 @@ def generate_material_quiz(material_id):
                     file_path=material.file_path, teacher_id=material.owner_id)
     db.session.add(lesson)
     db.session.flush()
-    quiz = Quiz(lesson_id=lesson.id, questions=questions[:count])
+    # Relational path only — the JSON `questions` column on Quiz is a
+    # deprecated fallback and is no longer written to.
+    quiz = Quiz(lesson_id=lesson.id, questions=[])
     db.session.add(quiz)
     db.session.flush()
-    for item in questions[:count]:
-        options = item.get("options", [])
-        correct = item.get("correct_answer")
-        option_rows = [{"key": chr(65 + i), "text": value} for i, value in enumerate(options)]
-        correct_keys = [row["key"] for row in option_rows if row["text"] == correct]
-        db.session.add(Question(quiz_id=quiz.id, stem=item.get("question", ""), qtype="mcq",
-                                options=option_rows, correct_keys=correct_keys or ["A"],
-                                explanation=item.get("answer"), difficulty={"easy": .3, "medium": .5, "hard": .8}.get(difficulty, .5),
-                                competency_tag=tags[0]))
+    persist_quiz_questions(quiz.id, questions[:count], competency_tag=tags[0], difficulty_name=difficulty)
     db.session.commit()
     return jsonify({"id": quiz.id, "material_id": material.id, "title": material.title,
                     "num_questions": len(questions[:count]), "competency_tags": tags}), 201

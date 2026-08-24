@@ -9,7 +9,7 @@ from werkzeug.security import generate_password_hash
 
 with app.app_context():
     # Check if student already exists
-    student = User.query.filter_by(email='student@assesify.com').first()
+    student = User.find_by_email('student@assesify.com')
     
     if student:
         print(f"✓ Student account already exists: {student.email}")

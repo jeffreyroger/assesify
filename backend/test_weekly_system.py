@@ -23,7 +23,7 @@ def setup_test_data():
     """Create test user and quiz attempts for the week."""
     with app.app_context():
         # Create or get test user
-        test_user = User.query.filter_by(email='weekly_test@example.com').first()
+        test_user = User.find_by_email('weekly_test@example.com')
         if not test_user:
             test_user = User(
                 email='weekly_test@example.com',

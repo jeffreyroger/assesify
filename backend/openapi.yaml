@@ -1,0 +1,1312 @@
+openapi: 3.0.3
+info:
+  title: Assesify API
+  version: "1.0.0"
+  description: >
+    Hand-authored OpenAPI schema describing the current Assesify Flask API
+    surface (spec.md §4). Used as the source for `openapi-typescript` to
+    generate frontend TS types (spec.md §7.3). Reflects the API as it exists
+    today, not an aspirational redesign — kept in sync manually since the
+    backend does not (yet) generate this from code.
+servers:
+  - url: /api/v1
+    description: Versioned API root (also mounted at /api for legacy routes)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - full_name
+        - is_teacher
+        - is_admin
+        - streak
+        - diamonds
+        - health
+        - created_at
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        full_name:
+          type: string
+        is_teacher:
+          type: boolean
+        is_admin:
+          type: boolean
+        major:
+          type: string
+          nullable: true
+        location:
+          type: string
+          nullable: true
+        profile_pic:
+          type: string
+          nullable: true
+        karmayogi_user_id:
+          type: string
+          nullable: true
+        streak:
+          type: integer
+        diamonds:
+          type: integer
+        health:
+          type: integer
+        last_active_date:
+          type: string
+          format: date
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    LoginResponse:
+      allOf:
+        - $ref: "#/components/schemas/User"
+        - type: object
+          properties:
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+
+    RegisterRequest:
+      type: object
+      required: [email, full_name, password]
+      properties:
+        email:
+          type: string
+        full_name:
+          type: string
+        password:
+          type: string
+        is_teacher:
+          type: boolean
+          default: false
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    RefreshResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        full_name:
+          type: string
+        major:
+          type: string
+        location:
+          type: string
+
+    KarmayogiLinkRequest:
+      type: object
+      required: [karmayogi_user_id]
+      properties:
+        karmayogi_user_id:
+          type: string
+
+    Material:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        mime_type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        extracted_text:
+          type: string
+
+    Question:
+      type: object
+      required: [id, stem, qtype, options, difficulty, competency_tag]
+      properties:
+        id:
+          type: integer
+        stem:
+          type: string
+        qtype:
+          type: string
+        options:
+          type: array
+          items:
+            type: object
+        difficulty:
+          type: number
+        competency_tag:
+          type: string
+        correct_keys:
+          type: array
+          items:
+            type: string
+        explanation:
+          type: string
+          nullable: true
+
+    Quiz:
+      type: object
+      properties:
+        id:
+          type: integer
+        lesson_id:
+          type: integer
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Question"
+        created_at:
+          type: string
+          format: date-time
+
+    RecentQuiz:
+      type: object
+      required: [id, title, topic, questions_count, created_at]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        topic:
+          type: string
+        questions_count:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+
+    GenerateMaterialQuizRequest:
+      type: object
+      properties:
+        num_questions:
+          type: integer
+          default: 10
+        difficulty:
+          type: string
+          default: mixed
+        competency_tags:
+          type: array
+          items:
+            type: string
+
+    GenerateMaterialQuizResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        material_id:
+          type: integer
+        title:
+          type: string
+        num_questions:
+          type: integer
+        competency_tags:
+          type: array
+          items:
+            type: string
+
+    StartAttemptResponse:
+      type: object
+      required: [id, quiz_id, started_at]
+      properties:
+        id:
+          type: integer
+        quiz_id:
+          type: integer
+        started_at:
+          type: string
+          format: date-time
+
+    SaveResponseRequest:
+      type: object
+      required: [question_id, selected_keys]
+      properties:
+        question_id:
+          type: integer
+        selected_keys:
+          type: array
+          items:
+            type: string
+        time_ms:
+          type: integer
+          nullable: true
+
+    SaveResponseResult:
+      type: object
+      required: [question_id, is_correct]
+      properties:
+        question_id:
+          type: integer
+        is_correct:
+          type: boolean
+
+    SubmitAttemptResponse:
+      type: object
+      required: [attempt_id, score, correct, total]
+      properties:
+        attempt_id:
+          type: integer
+        score:
+          type: number
+        correct:
+          type: integer
+        total:
+          type: integer
+
+    AttemptResult:
+      type: object
+      required: [attempt_id, score, submitted_at, feedback]
+      properties:
+        attempt_id:
+          type: integer
+        score:
+          type: number
+        submitted_at:
+          type: string
+          format: date-time
+          nullable: true
+        feedback:
+          type: array
+          items:
+            type: object
+            required: [question, selected_keys, is_correct, time_ms]
+            properties:
+              question:
+                $ref: "#/components/schemas/Question"
+              selected_keys:
+                type: array
+                items:
+                  type: string
+              is_correct:
+                type: boolean
+              time_ms:
+                type: integer
+                nullable: true
+
+    NextQuestionResponse:
+      type: object
+      properties:
+        question:
+          allOf:
+            - $ref: "#/components/schemas/Question"
+          nullable: true
+        complete:
+          type: boolean
+
+    LegacySubmitQuizRequest:
+      type: object
+      properties:
+        class_id:
+          type: integer
+          nullable: true
+        answers:
+          type: array
+          items:
+            type: object
+            properties:
+              question:
+                type: string
+              answer:
+                type: string
+              is_correct:
+                type: boolean
+
+    LegacySubmitQuizResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        attempt_id:
+          type: integer
+        score:
+          type: number
+        health:
+          type: integer
+        streak:
+          type: integer
+        diamonds_earned:
+          type: integer
+
+    MasteryRow:
+      type: object
+      required: [competency_tag, mastery, updated_at]
+      properties:
+        competency_tag:
+          type: string
+        mastery:
+          type: number
+        updated_at:
+          type: string
+          format: date-time
+
+    MasteryResponse:
+      type: object
+      properties:
+        mastery:
+          type: array
+          items:
+            $ref: "#/components/schemas/MasteryRow"
+
+    Gap:
+      type: object
+      required: [competency_tag, mastery, gap_score]
+      properties:
+        competency_tag:
+          type: string
+        mastery:
+          type: number
+        gap_score:
+          type: number
+
+    GapsResponse:
+      type: object
+      properties:
+        gaps:
+          type: array
+          items:
+            $ref: "#/components/schemas/Gap"
+        threshold:
+          type: number
+
+    Recommendation:
+      type: object
+      required: [competency_tag, score, reason, source]
+      properties:
+        competency_tag:
+          type: string
+        course_id:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        url:
+          type: string
+          nullable: true
+        score:
+          type: number
+        reason:
+          type: string
+        source:
+          type: string
+          enum: [karmayogi, internal]
+        karmayogi_available:
+          type: boolean
+          nullable: true
+          description: >
+            Present (and false) only on the internal-fallback recommendation
+            emitted when Karmayogi is unreachable (see
+            karmayogi_service.py::_internal_fallback).
+
+    RecommendationsResponse:
+      type: object
+      properties:
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/Recommendation"
+
+    ClassSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        section:
+          type: string
+          nullable: true
+        teacher:
+          type: string
+        code:
+          type: string
+        progress:
+          type: integer
+        color:
+          type: string
+
+    JoinClassRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+
+    CreateClassRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        section:
+          type: string
+
+    InviteStudentRequest:
+      type: object
+      required: [email, full_name]
+      properties:
+        email:
+          type: string
+        full_name:
+          type: string
+
+    AuditLogEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        actor_id:
+          type: integer
+        action:
+          type: string
+        target_type:
+          type: string
+          nullable: true
+        target_id:
+          type: integer
+          nullable: true
+        details:
+          type: object
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    AuditLogResponse:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLogEntry"
+        page:
+          type: integer
+        per_page:
+          type: integer
+        total:
+          type: integer
+
+paths:
+  /auth/register:
+    post:
+      operationId: registerUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Registered
+        "400":
+          description: Validation error / email already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/login:
+    post:
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Login success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoginResponse"
+        "401":
+          description: Invalid credentials
+
+  /auth/refresh:
+    post:
+      operationId: refreshToken
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: New token pair
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshResponse"
+
+  /auth/profile:
+    get:
+      operationId: getProfile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /auth/update-profile:
+    put:
+      operationId: updateProfile
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                  user:
+                    $ref: "#/components/schemas/User"
+
+  /auth/karmayogi/link:
+    post:
+      operationId: linkKarmayogi
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KarmayogiLinkRequest"
+      responses:
+        "200":
+          description: Linked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  karmayogi_user_id:
+                    type: string
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/karmayogi/authorize:
+    post:
+      operationId: startKarmayogiAuthorization
+      summary: Begin the OAuth2 authorization-code + PKCE identity-link flow.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                redirect_uri:
+                  type: string
+                  description: Overrides KARMAYOGI_REDIRECT_URI for this request.
+      responses:
+        "200":
+          description: Authorization URL and anti-CSRF state
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorization_url, state, code_challenge_method, expires_at]
+                properties:
+                  authorization_url:
+                    type: string
+                  state:
+                    type: string
+                  code_challenge_method:
+                    type: string
+                    enum: [S256]
+                  expires_at:
+                    type: string
+        "503":
+          description: Karmayogi OAuth is not configured on this deployment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/karmayogi/callback:
+    post:
+      operationId: completeKarmayogiAuthorization
+      summary: Exchange the authorization code and link the Karmayogi identity.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, state]
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+      responses:
+        "200":
+          description: Identity linked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [karmayogi_user_id, linked_at]
+                properties:
+                  karmayogi_user_id:
+                    type: string
+                  linked_at:
+                    type: string
+                  scope:
+                    type: string
+                    nullable: true
+                  token_type:
+                    type: string
+                    nullable: true
+        "400":
+          description: Invalid, expired, or already-used state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: Karmayogi rejected the exchange or returned no identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Karmayogi OAuth is not configured on this deployment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /materials:
+    post:
+      operationId: createMaterial
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                title:
+                  type: string
+      responses:
+        "201":
+          description: Material created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+        "403":
+          description: Forbidden
+        "422":
+          description: Extraction error
+
+  /materials/{material_id}:
+    get:
+      operationId: getMaterial
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: material_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Material with text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Material"
+
+  /materials/{material_id}/generate-quiz:
+    post:
+      operationId: generateMaterialQuiz
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: material_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateMaterialQuizRequest"
+      responses:
+        "201":
+          description: Quiz generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GenerateMaterialQuizResponse"
+
+  /quizzes/{quiz_id}:
+    get:
+      operationId: getQuiz
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Quiz with questions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quiz"
+
+  /quizzes/recent:
+    get:
+      operationId: getRecentQuizzes
+      responses:
+        "200":
+          description: Last 5 quizzes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RecentQuiz"
+
+  /quizzes/{quiz_id}/submit:
+    post:
+      operationId: submitLegacyQuiz
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LegacySubmitQuizRequest"
+      responses:
+        "201":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LegacySubmitQuizResponse"
+
+  /quizzes/generate-personalized:
+    post:
+      operationId: generatePersonalizedQuiz
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topic:
+                  type: string
+      responses:
+        "200":
+          description: Personalized quiz
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /quizzes/generate-weekly-test:
+    post:
+      operationId: generateWeeklyTest
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [start_date, end_date]
+              properties:
+                num_questions:
+                  type: integer
+                  default: 10
+                start_date:
+                  type: string
+                  format: date
+                end_date:
+                  type: string
+                  format: date
+      responses:
+        "201":
+          description: Weekly test generated
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /quizzes/weekly-performance:
+    get:
+      operationId: getWeeklyPerformance
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: start_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        "200":
+          description: Weekly performance summary
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /quizzes/{quiz_id}/attempts:
+    post:
+      operationId: startAttempt
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "201":
+          description: Attempt started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartAttemptResponse"
+
+  /attempts/{attempt_id}/responses:
+    post:
+      operationId: saveResponse
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: attempt_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveResponseRequest"
+      responses:
+        "200":
+          description: Saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveResponseResult"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Attempt already closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /attempts/{attempt_id}/submit:
+    post:
+      operationId: submitAttempt
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: attempt_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitAttemptResponse"
+
+  /attempts/{attempt_id}/result:
+    get:
+      operationId: getAttemptResult
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: attempt_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Result with feedback
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AttemptResult"
+
+  /attempts/{attempt_id}/next-question:
+    get:
+      operationId: getNextQuestion
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: attempt_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Next adaptive question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NextQuestionResponse"
+
+  /students/{student_id}/mastery:
+    get:
+      operationId: getStudentMastery
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Mastery rows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasteryResponse"
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /students/{student_id}/gaps:
+    get:
+      operationId: getStudentGaps
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Competency gaps
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GapsResponse"
+
+  /students/{student_id}/recommendations:
+    get:
+      operationId: getStudentRecommendations
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Recommendations
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecommendationsResponse"
+
+  /classes/:
+    get:
+      operationId: getClasses
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Enrolled + taught classes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClassSummary"
+    post:
+      operationId: createClass
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClassRequest"
+      responses:
+        "201":
+          description: Class created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                  code:
+                    type: string
+                  id:
+                    type: integer
+
+  /classes/join:
+    post:
+      operationId: joinClass
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinClassRequest"
+      responses:
+        "200":
+          description: Joined class
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+                  class:
+                    type: object
+
+  /teacher/invite:
+    post:
+      operationId: inviteStudent
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InviteStudentRequest"
+      responses:
+        "201":
+          description: Invited
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  msg:
+                    type: string
+
+  /teacher/materials:
+    post:
+      operationId: uploadTeacherMaterial
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                title:
+                  type: string
+                subject:
+                  type: string
+                numQuestions:
+                  type: integer
+                difficulty:
+                  type: string
+      responses:
+        "201":
+          description: Quiz generated and saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  quiz_id:
+                    type: integer
+                  lesson_id:
+                    type: integer
+                  title:
+                    type: string
+                  num_questions:
+                    type: integer
+
+  /teacher/analytics:
+    get:
+      operationId: getTeacherAnalytics
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Per-lesson/quiz analytics for this teacher
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /teachers/cohorts/{class_id}/analytics:
+    get:
+      operationId: getCohortAnalytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: class_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Cohort analytics
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /admin/audit-log:
+    get:
+      operationId: getAuditLog
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        "200":
+          description: Paginated audit log entries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditLogResponse"
+
+  /admin/users/{user_id}:
+    get:
+      operationId: adminGetUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User details (admin only)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"

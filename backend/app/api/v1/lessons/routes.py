@@ -4,6 +4,7 @@ from app.models.lesson import Lesson
 from app.models.quiz import Quiz
 from ml.train.quiz_gen import generate_quiz, chunk_text
 from ml.utils.text_cleaner import clean_text
+from app.services.quiz_generation import persist_quiz_questions
 
 lessons_bp = Blueprint('lessons', __name__)
 
@@ -54,9 +55,11 @@ def generate_lesson_quiz(lesson_id):
     if not full_quiz_data:
         return jsonify({"error": "Failed to generate quiz questions"}), 500
 
-    # 3. Save to DB
-    new_quiz = Quiz(lesson_id=lesson.id, questions=full_quiz_data)
+    # 3. Save to DB (relational path — see app.services.quiz_generation)
+    new_quiz = Quiz(lesson_id=lesson.id, questions=[])
     db.session.add(new_quiz)
+    db.session.flush()
+    persist_quiz_questions(new_quiz.id, full_quiz_data, competency_tag=lesson.topic or "general")
     db.session.commit()
 
     return jsonify(new_quiz.to_dict()), 201

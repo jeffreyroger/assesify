@@ -10,9 +10,20 @@ class Quiz(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
+        # Prefer relational Question rows (the spec-compliant path) when they
+        # exist, converting them back into the legacy generator-dict shape so
+        # existing frontend consumers of this JSON blob don't need to change.
+        # The `questions` JSON column is kept only as a deprecated fallback
+        # for quizzes that predate the relational Question rows.
+        from app.models.assessment import Question
+        from app.services.quiz_generation import legacy_shape_from_questions
+
+        related = Question.query.filter_by(quiz_id=self.id).order_by(Question.id).all()
+        questions_data = legacy_shape_from_questions(related) if related else (self.questions or [])
+
         return {
             "id": self.id,
             "lesson_id": self.lesson_id,
-            "questions": self.questions,
+            "questions": questions_data,
             "created_at": self.created_at.isoformat()
         }

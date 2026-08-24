@@ -50,7 +50,7 @@ def advanced_aggregate(df: pd.DataFrame) -> pd.DataFrame:
     if "subtopic" not in df.columns:
         df["subtopic"] = None
 
-    for (sid, topic, subtopic), g in df.groupby(["student_id", "topic", "subtopic"]):
+    for (sid, topic, subtopic), g in df.groupby(["student_id", "topic", "subtopic"], dropna=False):
         accuracy_mean = g["accuracy"].mean()
         accuracy_std = g["accuracy"].std(ddof=0) if len(g) > 1 else 0.0
         avg_time_mean = g["avg_time_per_question"].mean()
@@ -98,7 +98,9 @@ def advanced_aggregate(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(groups)
 
     # Speed score: invert avg_time_mean, scaled 0-1 using robust min/max
-    if not out["avg_time_mean"].isnull().all():
+    if "avg_time_mean" not in out.columns:
+        out["speed_score"] = pd.Series(dtype=float)
+    elif not out["avg_time_mean"].isnull().all():
         q1 = out["avg_time_mean"].quantile(0.05)
         q99 = out["avg_time_mean"].quantile(0.95)
         denom = max(q99 - q1, 1e-6)

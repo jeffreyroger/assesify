@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from app.models.lesson import Lesson
+from ml.integrations.karmayogi.oauth import get_service_token
 from ml.integrations.karmayogi.recommender import ranked_courses
 
 
@@ -26,11 +27,18 @@ def recommend_for_gap(competency_tag: str, limit: int = 3):
     try:
         query = urlencode({"competency": competency_tag})
         request = Request(f"{base_url}/karmayogi/api/course/v1/list?{query}")
-        client_id = os.getenv("KARMAYOGI_CLIENT_ID")
-        client_secret = os.getenv("KARMAYOGI_CLIENT_SECRET")
-        if client_id and client_secret:
-            credentials = b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
-            request.add_header("Authorization", f"Basic {credentials}")
+        # Spec §6.1: server-to-server calls use an OAuth2 client-credentials
+        # bearer token when a token endpoint is configured; fall back to HTTP
+        # Basic for deployments that only expose static credentials.
+        service_token = get_service_token()
+        if service_token:
+            request.add_header("Authorization", f"Bearer {service_token}")
+        else:
+            client_id = os.getenv("KARMAYOGI_CLIENT_ID")
+            client_secret = os.getenv("KARMAYOGI_CLIENT_SECRET")
+            if client_id and client_secret:
+                credentials = b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+                request.add_header("Authorization", f"Basic {credentials}")
         with urlopen(request, timeout=4) as response:  # nosec B310 - configured service endpoint
             payload = json.loads(response.read().decode("utf-8"))
         courses = payload.get("courses", payload.get("result", payload if isinstance(payload, list) else []))

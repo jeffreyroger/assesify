@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/Button";
-import { getToken } from "@/lib/api";
+import { API_BASE_URL, getToken } from "@/lib/api";
 
 export default function MaterialPage() {
     const { id } = useParams<{ id: string }>();
@@ -11,7 +11,7 @@ export default function MaterialPage() {
     const generate = async () => {
         setStatus("Generating MCQs…");
         const token = getToken();
-        const response = await fetch(`http://127.0.0.1:5000/api/v1/materials/${id}/generate-quiz`, {
+        const response = await fetch(`${API_BASE_URL}/api/v1/materials/${id}/generate-quiz`, {
             method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
             body: JSON.stringify({ num_questions: 10, difficulty: "mixed", qtypes: ["mcq", "msq", "tf"], competency_tags: ["general"] }),
         });

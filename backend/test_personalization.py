@@ -16,7 +16,7 @@ def test_personalization():
     with app.app_context():
         # 1. Setup a test student
         test_email = "ml_test_student@example.com"
-        user = User.query.filter_by(email=test_email).first()
+        user = User.find_by_email(test_email)
         if not user:
             user = User(
                 email=test_email,

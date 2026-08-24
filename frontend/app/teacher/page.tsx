@@ -106,9 +106,12 @@ export default function TeacherDashboard() {
                             <Button variant="ghost" onClick={() => setIsInviteOpen(false)}>Cancel</Button>
                         </div>
                     </form>
-                    {inviteMsg && <p className="mt-3 text-sm font-bold">{inviteMsg}</p>}
                 </div>
             )}
+
+            {/* Rendered outside the collapsible form: a successful invite closes
+                the form, and the result must still be visible. */}
+            {inviteMsg && <p className="text-sm font-bold">{inviteMsg}</p>}
 
             {/* Overview Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

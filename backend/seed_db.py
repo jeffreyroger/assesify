@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash
 def seed():
     with app.app_context():
         # Create a default user if not exists
-        if not User.query.filter_by(email="admin@assesify.com").first():
+        if not User.find_by_email("admin@assesify.com"):
             admin = User(
                 email="admin@assesify.com",
                 full_name="Admin User",

@@ -1,7 +1,8 @@
 from flask import Blueprint, jsonify
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
-from app.models.users import User
+from app.models.mastery import Recommendation
+from app.models.users import User, db
 from app.services.karmayogi_service import recommend_for_gap
 from app.services.mastery_service import gaps_for_student, refresh_student_mastery
 
@@ -36,5 +37,32 @@ def recommendations(student_id):
         return jsonify({"error": {"code": "FORBIDDEN", "message": "Not allowed to view this learner."}}), 403
     recommendations = []
     for gap in gaps_for_student(student_id):
-        recommendations.extend(recommend_for_gap(gap["competency_tag"]))
+        for rec in recommend_for_gap(gap["competency_tag"]):
+            rec.setdefault("competency_tag", gap["competency_tag"])
+            recommendations.append(rec)
+    _persist_recommendations(student_id, recommendations)
     return jsonify({"recommendations": recommendations})
+
+
+def _persist_recommendations(student_id, recommendations):
+    """Upsert computed recommendations into the `recommendations` table (spec §3.1)."""
+    for rec in recommendations:
+        competency_tag = rec.get("competency_tag") or rec.get("competency") or ""
+        course_id = rec.get("course_id")
+        row = Recommendation.query.filter_by(
+            student_id=student_id,
+            competency_tag=competency_tag,
+            karmayogi_course_id=course_id,
+        ).first()
+        if row is None:
+            row = Recommendation(
+                student_id=student_id,
+                competency_tag=competency_tag,
+                karmayogi_course_id=course_id,
+            )
+            db.session.add(row)
+        row.score = float(rec.get("score", 0.5) or 0.5)
+        row.reason = rec.get("reason", "")
+        row.course_title = rec.get("title")
+        row.course_url = rec.get("url")
+    db.session.commit()

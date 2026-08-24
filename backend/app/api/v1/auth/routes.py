@@ -58,14 +58,14 @@ def get_avatar(filename):
 @ratelimit_for_auth(limit=60)
 def register():
     data = request.json
-    if User.query.filter_by(email=data["email"]).first():
+    if User.find_by_email(data["email"]):
         return jsonify({"msg": "Email already registered"}), 400
 
     user = User(
-        email=data["email"],
         full_name=data["full_name"],
         is_teacher=data.get("is_teacher", False)
     )
+    user.set_email(data["email"])
     user.set_password(data["password"])
     db.session.add(user)
     db.session.commit()
@@ -95,7 +95,7 @@ def _store_refresh_token(token: str, user_id: int):
 @ratelimit_for_auth(limit=60)
 def login():
     data = request.json
-    user = User.query.filter_by(email=data["email"]).first()
+    user = User.find_by_email(data["email"])
     if not user or not user.check_password(data["password"]):
         return jsonify({"msg": "Invalid credentials"}), 401
 
@@ -146,17 +146,78 @@ def refresh():
     _store_refresh_token(new_refresh, int(get_jwt_identity()))
     return jsonify({"access_token": access_token, "refresh_token": new_refresh})
 
+def _error(code: str, message: str, details=None, status: int = 400):
+    return jsonify({"error": {"code": code, "message": message, "details": details or {}}}), status
+
+
 @auth_bp.route("/karmayogi/link", methods=["POST"])
 @jwt_required()
 def link_karmayogi():
+    """Direct identity link.
+
+    Kept for administrative / already-known-id linking. The user-consented
+    OAuth2 PKCE flow lives at `/karmayogi/authorize` + `/karmayogi/callback`.
+    """
     data = request.get_json(silent=True) or {}
     karmayogi_user_id = data.get("karmayogi_user_id")
     if not karmayogi_user_id:
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "karmayogi_user_id is required", "details": {}}}), 400
+        return _error("VALIDATION_ERROR", "karmayogi_user_id is required")
     user = User.query.get(int(get_jwt_identity()))
     user.karmayogi_user_id = str(karmayogi_user_id)
     db.session.commit()
     return jsonify({"karmayogi_user_id": user.karmayogi_user_id})
+
+
+@auth_bp.route("/karmayogi/authorize", methods=["POST"])
+@jwt_required()
+def karmayogi_authorize():
+    """Start the OAuth2 authorization-code + PKCE flow (spec §6.1).
+
+    Returns the Karmayogi authorization URL the frontend should send the user
+    to, plus the anti-CSRF `state` it must echo back to `/karmayogi/callback`.
+    """
+    from app.services import karmayogi_oauth_service as svc
+    from ml.integrations.karmayogi.oauth import OAuthConfigurationError, OAuthError
+
+    data = request.get_json(silent=True) or {}
+    try:
+        result = svc.begin_authorization(
+            user_id=int(get_jwt_identity()),
+            redirect_uri=data.get("redirect_uri"),
+        )
+    except OAuthConfigurationError as e:
+        return _error(e.code, str(e), e.details, status=503)
+    except OAuthError as e:
+        return _error(e.code, str(e), e.details, status=400)
+    return jsonify(result), 200
+
+
+@auth_bp.route("/karmayogi/callback", methods=["POST"])
+@jwt_required()
+def karmayogi_callback():
+    """Complete the PKCE flow: validate state, exchange code, store the id."""
+    from app.services import karmayogi_oauth_service as svc
+    from ml.integrations.karmayogi.oauth import OAuthConfigurationError, OAuthError
+
+    data = request.get_json(silent=True) or {}
+    try:
+        result = svc.complete_authorization(
+            user_id=int(get_jwt_identity()),
+            code=data.get("code"),
+            state=data.get("state"),
+        )
+    except OAuthConfigurationError as e:
+        return _error(e.code, str(e), e.details, status=503)
+    except OAuthError as e:
+        status = {
+            "VALIDATION_ERROR": 400,
+            "INVALID_STATE": 400,
+            "STATE_EXPIRED": 400,
+            "NOT_FOUND": 404,
+            "KARMAYOGI_UNAVAILABLE": 502,
+        }.get(e.code, 502)
+        return _error(e.code, str(e), e.details, status=status)
+    return jsonify(result), 200
 
 @auth_bp.route("/update-profile", methods=["PUT"])
 @jwt_required()

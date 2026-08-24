@@ -1,25 +1,36 @@
 import io
-import sys
+import os
 
-# Ensure backend package on sys.path when tests run from project root
-sys.path.insert(0, r"c:/Users/Home/Desktop/backend/assesify/backend")
+os.environ.setdefault('DATABASE_URL', 'sqlite:///:memory:')
+os.environ.setdefault('JWT_SECRET_KEY', 'test-jwt-secret')
 
 from app.main import create_app
+from app.models.users import db, User
+from flask_jwt_extended import create_access_token
 
 
 def test_upload_txt_file():
     app = create_app()
-    client = app.test_client()
+    with app.app_context():
+        db.create_all()
+        teacher = User(email='upload_teacher@example.com', full_name='Teacher',
+                        password_hash='fakehash', is_teacher=True)
+        db.session.add(teacher)
+        db.session.commit()
+        token = create_access_token(identity=str(teacher.id))
 
+    client = app.test_client()
     data = {
         "file": (io.BytesIO(b"Photosynthesis converts light to chemical energy in plants."), "lesson.txt"),
         "title": "Week 1",
-        "numQuestions": "3",
     }
-
-    resp = client.post("/api/teacher/materials", data=data, content_type="multipart/form-data")
+    resp = client.post(
+        "/api/v1/materials",
+        data=data,
+        content_type="multipart/form-data",
+        headers={"Authorization": f"Bearer {token}"},
+    )
     assert resp.status_code == 201
     body = resp.get_json()
-    assert "quiz" in body
-    assert isinstance(body["quiz"], list)
-    assert len(body["quiz"]) <= 3
+    assert body["title"] == "Week 1"
+    assert body["mime_type"] == "text/plain"

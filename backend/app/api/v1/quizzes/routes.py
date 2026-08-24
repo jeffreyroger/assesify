@@ -5,6 +5,7 @@ from app.models.quiz import Quiz
 from app.models.submission import QuizAttempt, QuizAnswer
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
+from app.models.assessment import Question
 from app.services.personalized_quiz_service import PersonalizedQuizService
 from app.services.mastery_service import refresh_student_mastery
 
@@ -93,11 +94,12 @@ def get_recent_quizzes():
         # Get lesson title
         from app.models.lesson import Lesson
         lesson = Lesson.query.get(q.lesson_id)
+        question_count = Question.query.filter_by(quiz_id=q.id).count() or (len(q.questions) if q.questions else 0)
         results.append({
             "id": q.id,
             "title": lesson.title if lesson else f"Quiz {q.id}",
             "topic": lesson.topic if lesson else "General",
-            "questions_count": len(q.questions) if q.questions else 0,
+            "questions_count": question_count,
             "created_at": q.created_at.isoformat()
         })
     return jsonify(results)

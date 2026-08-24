@@ -13,6 +13,7 @@ import time
 from ml.utils.pdf_utils import extract_text_from_pdf
 from ml.utils.text_cleaner import clean_text
 from ml.train.quiz_gen import chunk_text, generate_quiz
+from app.services.quiz_generation import persist_quiz_questions
 
 ALLOWED_EXTENSIONS = {"pdf", "txt", "docx"}
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB, per v1 specification
@@ -80,14 +81,14 @@ def invite_student():
     except ValidationError as e:
         return jsonify(e.errors()), 400
 
-    if User.query.filter_by(email=data.email).first():
+    if User.find_by_email(data.email):
         return jsonify({"msg": "Student already exists"}), 400
 
     student = User(
-        email=data.email,
         full_name=data.full_name,
         is_teacher=False
     )
+    student.set_email(data.email)
     student.set_password("TempPassword123!")  # temp password
     db.session.add(student)
     db.session.commit()
@@ -186,12 +187,16 @@ def upload_material():
         db.session.add(lesson)
         db.session.commit()
         
-        # 2. Create Quiz
+        # 2. Create Quiz (relational path — Question rows are the source of
+        # truth; the JSON `questions` column is kept only as a deprecated,
+        # unused-on-write fallback for pre-migration rows).
         quiz = Quiz(
             lesson_id=lesson.id,
-            questions=quiz_questions
+            questions=[]
         )
         db.session.add(quiz)
+        db.session.flush()
+        persist_quiz_questions(quiz.id, quiz_questions, competency_tag=subject or "general", difficulty_name=difficulty)
         db.session.commit()
 
         return jsonify({

@@ -19,6 +19,8 @@ from flask_cors import CORS
 from app.core.config import Config
 from app.models.users import db
 from app.models.submission import QuizAttempt, QuizAnswer
+from app.models.audit_log import AuditLog
+from app.models.oauth_state import OAuthState
 from app.api.v1.auth.routes import auth_bp
 # teacher blueprint can import heavy ML deps; import optionally so quick dev runs don't fail
 try:
@@ -33,6 +35,35 @@ from app.api.v1.materials.routes import materials_bp
 from app.api.v1.attempts.routes import attempts_bp
 from app.api.v1.quiz_api.routes import quiz_api_bp
 from app.api.v1.analytics_v1.routes import analytics_v1_bp
+from app.api.v1.admin.routes import admin_bp
+
+#: HTTP status -> (spec §4.5 error code, default human message).
+ERROR_CODES = {
+    400: ("VALIDATION_ERROR", "The request payload is invalid."),
+    401: ("UNAUTHORIZED", "Authentication is required."),
+    403: ("FORBIDDEN", "You do not have access to this resource."),
+    404: ("NOT_FOUND", "Resource not found."),
+    405: ("METHOD_NOT_ALLOWED", "That method is not allowed on this resource."),
+    409: ("CONFLICT", "The request conflicts with the current state."),
+    413: ("VALIDATION_ERROR", "The upload exceeds the 25 MB limit."),
+    415: ("UNSUPPORTED_MEDIA_TYPE", "Unsupported media type."),
+    422: ("VALIDATION_ERROR", "The request payload could not be processed."),
+    429: ("RATE_LIMITED", "Too many requests; slow down."),
+    500: ("INTERNAL_ERROR", "An unexpected error occurred."),
+    502: ("BAD_GATEWAY", "An upstream service failed."),
+    503: ("SERVICE_UNAVAILABLE", "The service is temporarily unavailable."),
+}
+
+
+def error_response(status: int, message: str | None = None, code: str | None = None, details: dict | None = None):
+    """Build a spec §4.5 error body. `msg` is duplicated for legacy clients."""
+    default_code, default_message = ERROR_CODES.get(status, ("INTERNAL_ERROR", "Request failed."))
+    message = message or default_message
+    return jsonify({
+        "error": {"code": code or default_code, "message": message, "details": details or {}},
+        "msg": message,
+    }), status
+
 
 def create_app():
     app = Flask(__name__)
@@ -49,7 +80,8 @@ def create_app():
         CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)
 
     # Fallback: ensure responses include CORS headers only for allowed origin
-    request_counts = {"requests_total": 0, "requests_errors_total": 0, "request_duration_ms_total": 0.0}
+    request_counts = {"requests_total": 0, "requests_errors_total": 0,
+                      "request_duration_ms_total": 0.0, "by_status": {}}
 
     # Avoid SQLAlchemy expiring object attributes on commit so tests can access ids from detached instances
     app.config.setdefault('SQLALCHEMY_EXPIRE_ON_COMMIT', False)
@@ -60,6 +92,35 @@ def create_app():
     def begin_request():
         request.request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
         request.started_at = time.perf_counter()
+
+    @app.after_request
+    def normalize_error_envelope(response):
+        """Guarantee spec §4.5's `{"error": {code, message, details}}` shape.
+
+        Handlers across the app historically returned `{"msg": "..."}` for
+        failures, and the frontend reads that field. Rather than break those
+        clients, every 4xx/5xx JSON response that lacks an `error` key is
+        wrapped here: the legacy keys are preserved alongside the envelope, so
+        the contract is uniform for new clients and unchanged for old ones.
+        """
+        if response.status_code < 400 or not response.is_json:
+            return response
+        try:
+            payload = response.get_json(silent=True)
+        except Exception:
+            return response
+        if not isinstance(payload, dict) or "error" in payload:
+            return response
+        message = (
+            payload.get("msg")
+            or payload.get("message")
+            or payload.get("description")
+            or ERROR_CODES.get(response.status_code, ("INTERNAL_ERROR", "Request failed."))[1]
+        )
+        code = ERROR_CODES.get(response.status_code, ("INTERNAL_ERROR", ""))[0]
+        payload["error"] = {"code": code, "message": message, "details": {}}
+        response.set_data(json.dumps(payload))
+        return response
 
     @app.after_request
     def add_cors_headers(response):
@@ -75,16 +136,9 @@ def create_app():
         request_counts["request_duration_ms_total"] += duration
         if response.status_code >= 400:
             request_counts["requests_errors_total"] += 1
-        response.headers["X-Request-ID"] = request.request_id
-        app.logger.info(json.dumps({"event": "request", "request_id": request.request_id,
-                                   "method": request.method, "path": request.path,
-                                   "status": response.status_code, "duration_ms": round(duration, 2)}))
-        return response
-        duration = (time.perf_counter() - getattr(request, "started_at", time.perf_counter())) * 1000
-        request_counts["requests_total"] += 1
-        request_counts["request_duration_ms_total"] += duration
-        if response.status_code >= 400:
-            request_counts["requests_errors_total"] += 1
+        request_counts["by_status"][str(response.status_code)] = (
+            request_counts["by_status"].get(str(response.status_code), 0) + 1
+        )
         response.headers["X-Request-ID"] = request.request_id
         app.logger.info(json.dumps({"event": "request", "request_id": request.request_id,
                                    "method": request.method, "path": request.path,
@@ -129,20 +183,51 @@ def create_app():
     app.register_blueprint(materials_bp, url_prefix="/api/v1/materials")
     app.register_blueprint(attempts_bp, url_prefix="/api/v1")
     app.register_blueprint(analytics_v1_bp, url_prefix="/api/v1")
+    app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
 
-    @app.errorhandler(404)
-    def not_found(_):
-        return jsonify({"error": {"code": "NOT_FOUND", "message": "Resource not found.", "details": {}}}), 404
+    # Spec §4.5: every HTTP error leaves the API in the standard envelope,
+    # including the ones Flask/Werkzeug raise before a view runs.
+    from werkzeug.exceptions import HTTPException
 
-    @app.errorhandler(413)
-    def file_too_large(_):
-        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "The upload exceeds the 25 MB limit.", "details": {}}}), 413
+    @app.errorhandler(HTTPException)
+    def handle_http_exception(e):
+        status = e.code or 500
+        # 413 keeps the spec's explicit size-cap wording rather than
+        # Werkzeug's generic description.
+        message = None if status == 413 else e.description
+        return error_response(status, message)
+
+    @app.errorhandler(Exception)
+    def handle_unexpected_exception(e):
+        app.logger.exception(json.dumps({
+            "event": "unhandled_exception",
+            "request_id": getattr(request, "request_id", None),
+            "path": request.path,
+        }))
+        if app.debug or app.testing:
+            # Never mask real stack traces during development or tests.
+            raise e
+        return error_response(500)
 
     @app.route("/metrics")
     def metrics():
-        lines = ["# TYPE assesify_requests_total counter", f"assesify_requests_total {request_counts['requests_total']}",
-                 "# TYPE assesify_request_errors_total counter", f"assesify_request_errors_total {request_counts['requests_errors_total']}",
-                 "# TYPE assesify_request_duration_ms_total counter", f"assesify_request_duration_ms_total {request_counts['request_duration_ms_total']}"]
+        """Prometheus text-format exposition (spec §9)."""
+        total = request_counts["requests_total"]
+        lines = [
+            "# HELP assesify_requests_total Total HTTP requests served.",
+            "# TYPE assesify_requests_total counter",
+            f"assesify_requests_total {total}",
+            "# HELP assesify_request_errors_total HTTP requests answered with a 4xx/5xx status.",
+            "# TYPE assesify_request_errors_total counter",
+            f"assesify_request_errors_total {request_counts['requests_errors_total']}",
+            "# HELP assesify_request_duration_ms_total Cumulative request handling time in milliseconds.",
+            "# TYPE assesify_request_duration_ms_total counter",
+            f"assesify_request_duration_ms_total {request_counts['request_duration_ms_total']}",
+            "# HELP assesify_responses_by_status_total HTTP responses partitioned by status code.",
+            "# TYPE assesify_responses_by_status_total counter",
+        ]
+        for status, count in sorted(request_counts["by_status"].items()):
+            lines.append(f'assesify_responses_by_status_total{{status="{status}"}} {count}')
         return "\n".join(lines) + "\n", 200, {"Content-Type": "text/plain; version=0.0.4"}
 
     @app.route("/")

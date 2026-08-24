@@ -7,8 +7,10 @@ import { X, Heart, Flag, Loader2 } from "lucide-react";
 import { ProgressBar } from "@/components/ProgressBar";
 import { Button } from "@/components/Button";
 import { clsx } from "clsx";
+import { API_BASE_URL, StartAttemptResponse } from "@/lib/api";
 
 interface Question {
+    id?: string | number;
     question: string;
     answer: string;
     options: string[];
@@ -36,7 +38,7 @@ export default function LearnPage() {
         if (!quizId) return;
 
         // Fetch quiz by ID
-        fetch(`http://127.0.0.1:5000/api/quizzes/${quizId}`)
+        fetch(`${API_BASE_URL}/api/quizzes/${quizId}`)
             .then(res => res.json())
             .then(async data => {
                 if (data.questions && Array.isArray(data.questions)) {
@@ -46,13 +48,13 @@ export default function LearnPage() {
 
                 // Start attempt for autosave if supported
                 try {
-                    const resp = await fetch(`http://127.0.0.1:5000/api/v1/quizzes/${quizId}/attempts`, {
+                    const resp = await fetch(`${API_BASE_URL}/api/v1/quizzes/${quizId}/attempts`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' }
                     });
                     if (resp.ok) {
-                        const j = await resp.json();
-                        setAttemptId(j.id);
+                        const j: StartAttemptResponse = await resp.json();
+                        setAttemptId(j.id ?? null);
                     }
                 } catch (e) {
                     // best-effort; continue without attemptId
@@ -106,14 +108,14 @@ export default function LearnPage() {
         try {
             // If we have an attemptId, submit via attempt submit endpoint
             if (attemptId) {
-                            await fetch(`http://127.0.0.1:5000/api/v1/${attemptId}/submit`, {
+                            await fetch(`${API_BASE_URL}/api/v1/${attemptId}/submit`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' }
                 });
                 return;
             }
 
-            await fetch(`http://127.0.0.1:5000/api/quizzes/${quizId}/submit`, {
+            await fetch(`${API_BASE_URL}/api/quizzes/${quizId}/submit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -142,7 +144,7 @@ export default function LearnPage() {
 
         setSavingMap(m => ({ ...m, [qKey]: true }));
         try {
-            await fetch(`http://127.0.0.1:5000/api/v1/${attemptId}/responses`, {
+            await fetch(`${API_BASE_URL}/api/v1/${attemptId}/responses`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ question_id: question.id, selected_keys: [key] })
