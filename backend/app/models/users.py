@@ -20,6 +20,7 @@ class User(db.Model):
     diamonds = db.Column(db.Integer, default=0)
     health = db.Column(db.Integer, default=5)
     profile_pic = db.Column(db.String(255), nullable=True)
+    karmayogi_user_id = db.Column(db.String(255), nullable=True)
     last_active_date = db.Column(db.Date, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -32,6 +33,7 @@ class User(db.Model):
             "major": self.major,
             "location": self.location,
             "profile_pic": self.profile_pic,
+            "karmayogi_user_id": self.karmayogi_user_id,
             "streak": self.streak,
             "diamonds": self.diamonds,
             "health": self.health,

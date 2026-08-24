@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  db:
-    image: postgres:15
-    container_name: assesify-db
+  postgres:
+    image: postgres:16
+    container_name: assesify-postgres
     ports:
       - "${DB_PORT:-5432}:5432"
     environment:
@@ -12,7 +12,36 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-mydb}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    restart: always
+    restart: unless-stopped
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password123}@postgres:5432/${POSTGRES_DB:-mydb}
+    depends_on:
+      - postgres
+    ports:
+      - "5000:5000"
+  frontend:
+    build: ./frontend
+    env_file: .env
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+  ml-worker:
+    build: ./backend
+    env_file: .env
+    depends_on:
+      - postgres
+      - redis
+    command: python -m ml.worker
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password123}@postgres:5432/${POSTGRES_DB:-mydb}
+      REDIS_URL: redis://redis:6379/0
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
 
 volumes:
   postgres_data:

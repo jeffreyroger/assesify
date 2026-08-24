@@ -10,9 +10,9 @@ class QuizAttempt(db.Model):
     # If the user took this quiz as part of a specific class context:
     class_id = db.Column(db.Integer, db.ForeignKey('classes.id'), nullable=True)
     
-    score = db.Column(db.Float, nullable=False) # e.g. 85.0
+    score = db.Column(db.Float, nullable=False, default=0.0) # e.g. 85.0
     started_at = db.Column(db.DateTime, default=datetime.utcnow)
-    completed_at = db.Column(db.DateTime, default=datetime.utcnow)
+    completed_at = db.Column(db.DateTime, nullable=True)
 
     # Relationships
     user = db.relationship('User', backref='quiz_attempts')

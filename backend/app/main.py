@@ -1,5 +1,9 @@
 import sys
 import os
+import json
+import logging
+import time
+import uuid
 
 # Add backend folder to sys.path so absolute imports work
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -8,7 +12,7 @@ from dotenv import load_dotenv
 # Load .env from project root
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env'))
 
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
@@ -24,6 +28,11 @@ except Exception:
 from app.api.v1.classes.routes import classes_bp
 from app.api.v1.lessons.routes import lessons_bp
 from app.api.v1.quizzes.routes import quizzes_bp
+from app.api.v1.students.routes import students_bp
+from app.api.v1.materials.routes import materials_bp
+from app.api.v1.attempts.routes import attempts_bp
+from app.api.v1.quiz_api.routes import quiz_api_bp
+from app.api.v1.analytics_v1.routes import analytics_v1_bp
 
 def create_app():
     app = Flask(__name__)
@@ -31,7 +40,7 @@ def create_app():
 
     # Enable CORS for API endpoints. For local dev allow any origin (no credentials).
     # In production set FRONTEND_URL to the frontend host and remove allow_headers or set supports_credentials=True appropriately.
-    frontend_url = os.environ.get("FRONTEND_URL")
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
     if frontend_url:
         CORS(app, resources={r"/api/*": {"origins": frontend_url}}, supports_credentials=True)
     else:
@@ -39,18 +48,30 @@ def create_app():
         CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)  # Enable CORS for API routes
 
     # Fallback: ensure responses include CORS headers for local dev frontend origins
+    request_counts = {"requests_total": 0, "requests_errors_total": 0, "request_duration_ms_total": 0.0}
+
+    @app.before_request
+    def begin_request():
+        request.request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+        request.started_at = time.perf_counter()
+
     @app.after_request
     def add_cors_headers(response):
         origin = request.headers.get("Origin")
         if origin:
-            # If FRONTEND_URL is set, only allow that origin. Otherwise allow the requesting origin.
-            allowed = frontend_url if frontend_url else origin
-            response.headers["Access-Control-Allow-Origin"] = allowed
+            response.headers["Access-Control-Allow-Origin"] = frontend_url
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
             response.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS"
-            # Don't enable credentials for wildcard local dev
-            if frontend_url:
-                response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        duration = (time.perf_counter() - getattr(request, "started_at", time.perf_counter())) * 1000
+        request_counts["requests_total"] += 1
+        request_counts["request_duration_ms_total"] += duration
+        if response.status_code >= 400:
+            request_counts["requests_errors_total"] += 1
+        response.headers["X-Request-ID"] = request.request_id
+        app.logger.info(json.dumps({"event": "request", "request_id": request.request_id,
+                                   "method": request.method, "path": request.path,
+                                   "status": response.status_code, "duration_ms": round(duration, 2)}))
         return response
     db.init_app(app)
     Migrate(app, db)
@@ -62,6 +83,33 @@ def create_app():
     app.register_blueprint(classes_bp, url_prefix="/api/classes")
     app.register_blueprint(lessons_bp, url_prefix="/api/lessons")
     app.register_blueprint(quizzes_bp, url_prefix="/api/quizzes")
+    # The original /api routes remain for the existing UI; new clients use the
+    # versioned contract described in SPEC.md.
+    app.register_blueprint(auth_bp, url_prefix="/api/v1/auth", name="auth_v1")
+    if teacher_bp:
+        app.register_blueprint(teacher_bp, url_prefix="/api/v1/teacher", name="teacher_v1")
+    app.register_blueprint(classes_bp, url_prefix="/api/v1/classes", name="classes_v1")
+    app.register_blueprint(lessons_bp, url_prefix="/api/v1/lessons", name="lessons_v1")
+    app.register_blueprint(quiz_api_bp, url_prefix="/api/v1/quizzes")
+    app.register_blueprint(students_bp, url_prefix="/api/v1/students")
+    app.register_blueprint(materials_bp, url_prefix="/api/v1/materials")
+    app.register_blueprint(attempts_bp, url_prefix="/api/v1")
+    app.register_blueprint(analytics_v1_bp, url_prefix="/api/v1")
+
+    @app.errorhandler(404)
+    def not_found(_):
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Resource not found.", "details": {}}}), 404
+
+    @app.errorhandler(413)
+    def file_too_large(_):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "The upload exceeds the 25 MB limit.", "details": {}}}), 413
+
+    @app.route("/metrics")
+    def metrics():
+        lines = ["# TYPE assesify_requests_total counter", f"assesify_requests_total {request_counts['requests_total']}",
+                 "# TYPE assesify_request_errors_total counter", f"assesify_request_errors_total {request_counts['requests_errors_total']}",
+                 "# TYPE assesify_request_duration_ms_total counter", f"assesify_request_duration_ms_total {request_counts['request_duration_ms_total']}"]
+        return "\n".join(lines) + "\n", 200, {"Content-Type": "text/plain; version=0.0.4"}
 
     @app.route("/")
     def home():

@@ -14,11 +14,13 @@
   /* Surface Colors */
   --color-surface-light: #FFFFFF;
   --color-surface-dark: #131F24;
+  --app-font-geist: Arial, Helvetica, sans-serif;
+  --app-font-nunito: Arial, Helvetica, sans-serif;
 }
 
 @theme inline {
-  --font-geist: var(--font-geist);
-  --font-nunito: var(--font-nunito);
+  --font-geist: var(--app-font-geist);
+  --font-nunito: var(--app-font-nunito);
 
   --color-brand-green: var(--color-brand-green);
   --color-brand-green-dark: var(--color-brand-green-dark);

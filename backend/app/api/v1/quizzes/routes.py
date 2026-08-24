@@ -5,6 +5,7 @@ from app.models.quiz import Quiz
 from app.models.submission import QuizAttempt, QuizAnswer
 
 from app.services.personalized_quiz_service import PersonalizedQuizService
+from app.services.mastery_service import refresh_student_mastery
 
 quizzes_bp = Blueprint('quizzes', __name__)
 
@@ -171,6 +172,7 @@ def submit_quiz(quiz_id):
         user.diamonds += diamonds_earned
 
     db.session.commit()
+    refresh_student_mastery(user_id)
     
     return jsonify({
         "message": "Quiz submitted successfully",

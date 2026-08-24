@@ -14,7 +14,7 @@ from ml.utils.text_cleaner import clean_text
 from ml.train.quiz_gen import chunk_text, generate_quiz
 
 ALLOWED_EXTENSIONS = {"pdf", "txt", "docx"}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_FILE_SIZE = 25 * 1024 * 1024  # 25MB, per v1 specification
 
 teacher_bp = Blueprint("teacher", __name__)
 
@@ -104,24 +104,14 @@ def invite_student():
 
 
 @teacher_bp.route("/materials", methods=["POST"])
+@jwt_required()
 # Note: this endpoint accepts uploads and processes them synchronously for now
 def upload_material():
     try:
-        # Allow authenticated teachers, but also accept anonymous uploads for quick dev testing
-        from flask_jwt_extended import verify_jwt_in_request
-        current_user_id = None
-        try:
-            verify_jwt_in_request(optional=True)
-            current_user_id = get_jwt_identity()
-        except Exception:
-            pass # No valid token
-            
-        teacher = None
-        if current_user_id:
-            try:
-                teacher = User.query.get(int(current_user_id))
-            except Exception:
-                teacher = None
+        current_user_id = get_jwt_identity()
+        teacher = User.query.get(int(current_user_id)) if current_user_id else None
+        if not teacher or not teacher.is_teacher:
+            return jsonify({"error": {"code": "FORBIDDEN", "message": "Only teachers can upload materials.", "details": {}}}), 403
 
         if "file" not in request.files:
             return jsonify({"msg": "file is required"}), 400

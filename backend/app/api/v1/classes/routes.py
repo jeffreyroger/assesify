@@ -85,8 +85,8 @@ def join_class():
 def create_class():
     current_user_id = int(get_jwt_identity())
     user = User.query.get(current_user_id)
-    
-    # In a real app, check if user.is_teacher
+    if not user or not user.is_teacher:
+        return jsonify({"error": {"code": "FORBIDDEN", "message": "Only teachers can create classes.", "details": {}}}), 403
     
     data = request.json
     name = data.get("name")

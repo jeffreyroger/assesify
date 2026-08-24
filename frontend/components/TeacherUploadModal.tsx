@@ -137,7 +137,7 @@ export function TeacherUploadModal({ isOpen, onClose, className }: TeacherUpload
                                         </div>
                                         <div className="text-center space-y-1">
                                             <p className="font-bold text-lg text-slate-700 dark:text-slate-200">Click or Drag to Upload</p>
-                                            <p className="text-slate-500 text-sm">PDF, DOCX, or TXT (Max 10MB)</p>
+                                            <p className="text-slate-500 text-sm">PDF, DOCX, or TXT (Max 25MB)</p>
                                         </div>
                                     </>
                                 )}

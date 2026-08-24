@@ -3,7 +3,7 @@ import time
 from flask import Blueprint, request, jsonify, current_app
 from werkzeug.utils import secure_filename
 from app.models.users import db, User
-from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import create_access_token, create_refresh_token, jwt_required, get_jwt_identity
 from app.core.security import hash_password
 
 auth_bp = Blueprint("auth", __name__)
@@ -77,9 +77,28 @@ def login():
         return jsonify({"msg": "Invalid credentials"}), 401
 
     access_token = create_access_token(identity=str(user.id))
+    refresh_token = create_refresh_token(identity=str(user.id))
     user_data = user.to_dict()
     user_data["access_token"] = access_token
+    user_data["refresh_token"] = refresh_token
     return jsonify(user_data)
+
+@auth_bp.route("/refresh", methods=["POST"])
+@jwt_required(refresh=True)
+def refresh():
+    return jsonify({"access_token": create_access_token(identity=get_jwt_identity())})
+
+@auth_bp.route("/karmayogi/link", methods=["POST"])
+@jwt_required()
+def link_karmayogi():
+    data = request.get_json(silent=True) or {}
+    karmayogi_user_id = data.get("karmayogi_user_id")
+    if not karmayogi_user_id:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "karmayogi_user_id is required", "details": {}}}), 400
+    user = User.query.get(int(get_jwt_identity()))
+    user.karmayogi_user_id = str(karmayogi_user_id)
+    db.session.commit()
+    return jsonify({"karmayogi_user_id": user.karmayogi_user_id})
 
 @auth_bp.route("/update-profile", methods=["PUT"])
 @jwt_required()

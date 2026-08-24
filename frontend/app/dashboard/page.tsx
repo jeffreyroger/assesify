@@ -7,6 +7,7 @@ import { ArrowRight, BookOpen, Clock, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { ProgressBar } from "@/components/ProgressBar";
 import { JoinClassModal } from "@/components/JoinClassModal";
+import { MasteryRecommendations } from "@/components/MasteryRecommendations";
 import { CreateClassModal } from "@/components/CreateClassModal";
 import { InviteStudentModal } from "@/components/InviteStudentModal";
 import { TeacherUploadModal } from "@/components/TeacherUploadModal";
@@ -401,6 +402,7 @@ export default function DashboardPage() {
                     </section>
                 </div>
             </div>
+            {!user?.is_teacher && <MasteryRecommendations />}
         </div>
     );
 }
