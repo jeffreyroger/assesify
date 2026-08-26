@@ -104,11 +104,34 @@ def get_recent_quizzes():
         })
     return jsonify(results)
 
+def _grade_against_question(question, answer_payload):
+    """Score one submitted answer server-side against its stored `Question` row.
+
+    Accepts either `selected_keys` (option keys, e.g. `["B"]`) or, failing
+    that, `answer` (the option's literal text, which is mapped back to a key).
+    Returns True only when the selected keys match the question's
+    `correct_keys` exactly.
+    """
+    correct_keys = sorted(str(key) for key in (question.correct_keys or []))
+    selected = answer_payload.get('selected_keys')
+    if selected is None:
+        text = answer_payload.get('answer')
+        selected = [opt.get('key') for opt in (question.options or []) if opt.get('text') == text]
+    if isinstance(selected, str):
+        selected = [selected]
+    selected = sorted(str(key) for key in (selected or []))
+    return bool(selected) and selected == correct_keys
+
+
 @quizzes_bp.route('/<int:quiz_id>/submit', methods=['POST'])
 @jwt_required()
 def submit_quiz(quiz_id):
     data = request.get_json() or {}
     # Expect: { "class_id": optional, "answers": [{ "question": "...", "answer": "...", "is_correct": true }] }
+    # Additionally supported (preferred): each answer may carry "question_id"
+    # (and optionally "selected_keys"), in which case correctness is determined
+    # server-side from the relational `Question` row rather than trusting the
+    # client-supplied "is_correct". The legacy shape above still works.
     
     quiz = Quiz.query.get_or_404(quiz_id)
     
@@ -127,9 +150,31 @@ def submit_quiz(quiz_id):
             "score": 100.0 # simple placeholder
         }), 200
 
+    # Grade every answer first: server-authoritative when the client identified
+    # the question by id, otherwise falling back to the legacy client-supplied
+    # `is_correct` flag so existing clients keep working unchanged.
+    graded = []
+    for ans in answers_data:
+        question = None
+        question_id = ans.get('question_id')
+        if question_id is not None:
+            question = Question.query.filter_by(id=question_id, quiz_id=quiz.id).first()
+        if question is not None:
+            graded.append({
+                'question_text': question.stem,
+                'student_answer': ans.get('answer'),
+                'is_correct': _grade_against_question(question, ans),
+            })
+        else:
+            graded.append({
+                'question_text': ans.get('question'),
+                'student_answer': ans.get('answer'),
+                'is_correct': bool(ans.get('is_correct', False)),
+            })
+
     # Calculate score
-    total_q = len(answers_data)
-    correct_c = sum(1 for a in answers_data if a.get('is_correct'))
+    total_q = len(graded)
+    correct_c = sum(1 for g in graded if g['is_correct'])
     score = (correct_c / total_q * 100) if total_q > 0 else 0.0
 
     attempt = QuizAttempt(
@@ -142,12 +187,12 @@ def submit_quiz(quiz_id):
     db.session.add(attempt)
     db.session.flush() # get ID
 
-    for ans in answers_data:
-        is_correct = ans.get('is_correct', False)
+    for entry in graded:
+        is_correct = entry['is_correct']
         q_ans = QuizAnswer(
             attempt_id=attempt.id,
-            question_text=ans.get('question'),
-            student_answer_text=ans.get('answer'),
+            question_text=entry['question_text'],
+            student_answer_text=entry['student_answer'],
             is_correct=is_correct
         )
         db.session.add(q_ans)

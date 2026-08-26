@@ -9,6 +9,17 @@ class Quiz(db.Model):
     questions = db.Column(db.JSON, nullable=False)  # Stores the list of questions/answers
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    def question_count(self):
+        """Number of questions on this quiz.
+
+        Prefers relational `Question` rows; falls back to the deprecated
+        `questions` JSON blob for quizzes that predate the relational schema.
+        """
+        from app.models.assessment import Question
+
+        count = Question.query.filter_by(quiz_id=self.id).count()
+        return count or (len(self.questions) if self.questions else 0)
+
     def to_dict(self):
         # Prefer relational Question rows (the spec-compliant path) when they
         # exist, converting them back into the legacy generator-dict shape so

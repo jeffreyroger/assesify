@@ -677,6 +677,8 @@ export interface components {
         LegacySubmitQuizRequest: {
             class_id?: number | null;
             answers?: {
+                question_id?: number | null;
+                selected_keys?: string[] | null;
                 question?: string;
                 answer?: string;
                 is_correct?: boolean;

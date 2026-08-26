@@ -5,6 +5,7 @@ from app.models.users import db, User
 from app.models.submission import QuizAttempt, QuizAnswer
 from app.models.lesson import Lesson
 from app.models.quiz import Quiz as QuizModel
+from app.services.quiz_generation import persist_quiz_questions
 from ml.recommender import advanced_aggregate, recommend_actions, generate_quiz_from_action
 from ml.genai import GeminiClient
 
@@ -79,12 +80,12 @@ class PersonalizedQuizService:
             
             from ml.train.quiz_gen import generate_quiz
             questions = generate_quiz(lesson.content)
-            
-            new_quiz = QuizModel(
-                lesson_id=lesson.id,
-                questions=questions
-            )
+
+            new_quiz = QuizModel(lesson_id=lesson.id, questions=[])
             db.session.add(new_quiz)
+            db.session.flush()  # need the quiz id before persisting its questions
+            persist_quiz_questions(new_quiz.id, questions,
+                                   competency_tag=lesson.topic or "general")
             db.session.commit()
             return new_quiz.to_dict()
 
@@ -119,13 +120,13 @@ class PersonalizedQuizService:
             # Find a matching lesson for the topic
             lesson = Lesson.query.filter(Lesson.topic == action.topic).first()
             
-            new_quiz = QuizModel(
-                lesson_id=lesson.id if lesson else None,
-                questions=questions
-            )
+            new_quiz = QuizModel(lesson_id=lesson.id if lesson else None, questions=[])
             db.session.add(new_quiz)
+            db.session.flush()  # need the quiz id before persisting its questions
+            persist_quiz_questions(new_quiz.id, questions,
+                                   competency_tag=action.topic or "general")
             db.session.commit()
-            
+
             return new_quiz.to_dict()
         except Exception as e:
             print(f"Error generating personalized quiz: {e}")
@@ -189,14 +190,16 @@ class PersonalizedQuizService:
             topic_data[topic]['mistake_count'] += (100 - att.score) / 10  # Rough estimate
             
             # Estimate time (placeholder - would need actual time tracking)
-            topic_data[topic]['total_time'] += 30 * len(quiz.questions)  # 30s per question
+            topic_data[topic]['total_time'] += 30 * quiz.question_count()  # 30s per question
         
         # Calculate weights and format response
         topics = []
         for topic, data in topic_data.items():
             accuracy = data['total_score'] / (data['total_attempts'] * 100)
             avg_time = data['total_time'] / data['total_attempts']
-            max_time = 60 * len(quiz.questions) if quiz else 300  # Max expected time
+            # Max expected time; falls back to 300s for an empty/unknown quiz
+            # so the weight calculation below can never divide by zero.
+            max_time = (60 * quiz.question_count() if quiz else 0) or 300
             
             # Calculate weight based on performance
             # More weight = more questions needed
@@ -274,12 +277,12 @@ class PersonalizedQuizService:
             
             from ml.train.quiz_gen import generate_quiz
             questions = generate_quiz(lesson.content)
-            
-            new_quiz = QuizModel(
-                lesson_id=lesson.id,
-                questions=questions
-            )
+
+            new_quiz = QuizModel(lesson_id=lesson.id, questions=[])
             db.session.add(new_quiz)
+            db.session.flush()  # need the quiz id before persisting its questions
+            persist_quiz_questions(new_quiz.id, questions,
+                                   competency_tag=lesson.topic or "general")
             db.session.commit()
             return new_quiz.to_dict()
         
@@ -366,11 +369,18 @@ Return ONLY valid JSON in this exact format:
         first_topic = topics[0]['topic']
         lesson = Lesson.query.filter(Lesson.topic == first_topic).first()
         
-        new_quiz = QuizModel(
-            lesson_id=lesson.id if lesson else None,
-            questions=all_questions
-        )
+        new_quiz = QuizModel(lesson_id=lesson.id if lesson else None, questions=[])
         db.session.add(new_quiz)
+        db.session.flush()  # need the quiz id before persisting its questions
+
+        # Questions come from several topics; persist each group tagged with its
+        # own competency so mastery/gap analysis attributes them correctly.
+        by_topic = defaultdict(list)
+        for q in all_questions:
+            by_topic[q.get('topic') or 'general'].append(q)
+        for topic_name, topic_questions in by_topic.items():
+            persist_quiz_questions(new_quiz.id, topic_questions, competency_tag=topic_name)
+
         db.session.commit()
         
         # Return with metadata

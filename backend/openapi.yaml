@@ -340,7 +340,20 @@ components:
           type: array
           items:
             type: object
+            description: >-
+              Supply `question_id` (and optionally `selected_keys`) to have the
+              server determine correctness from the stored question. When
+              `question_id` is omitted the legacy client-supplied `is_correct`
+              flag is used instead.
             properties:
+              question_id:
+                type: integer
+                nullable: true
+              selected_keys:
+                type: array
+                nullable: true
+                items:
+                  type: string
               question:
                 type: string
               answer:
