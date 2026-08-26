@@ -181,6 +181,77 @@ components:
           type: string
           nullable: true
 
+    LegacyQuizQuestion:
+      type: object
+      description: >-
+        The question shape served by `GET /api/quizzes/:id` (produced by
+        `quiz_generation.legacy_shape_from_questions()`). `id` is the relational
+        `questions.id` and should be echoed back as `question_id` when saving a
+        response, asking for feedback, or submitting the quiz so the server can
+        grade authoritatively.
+
+
+        `correct_answer` and `answer` (the explanation) are present **only** in
+        the owning teacher's view. The student / anonymous view omits them
+        entirely so the answer key cannot be read out of the network response
+        before answering (spec §4.3, §8). Students obtain them one question at a
+        time from `POST /quizzes/{quiz_id}/questions/{question_id}/check` after
+        committing a selection.
+      required: [id, question, options, hint]
+      properties:
+        id:
+          type: integer
+          nullable: true
+        question:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        correct_answer:
+          type: string
+          nullable: true
+          description: Owning-teacher view only.
+        answer:
+          type: string
+          nullable: true
+          description: Explanation. Owning-teacher view only.
+        hint:
+          type: string
+
+    CheckAnswerRequest:
+      type: object
+      required: [attempt_id]
+      description: >-
+        Identifies the attempt the feedback is bound to. The attempt must belong
+        to the calling student and to this quiz, and the question must already
+        have a recorded response in it (written by
+        `POST /api/v1/attempts/{attempt_id}/responses`) - otherwise the endpoint
+        would be an unmetered answer-key oracle. Revealing locks that response:
+        it can no longer be overwritten, and it is what the submit endpoint scores.
+      properties:
+        attempt_id:
+          type: integer
+
+    CheckAnswerResponse:
+      type: object
+      required: [question_id, is_correct, correct_answer, correct_keys, explanation]
+      properties:
+        question_id:
+          type: integer
+        is_correct:
+          type: boolean
+        correct_answer:
+          type: string
+          nullable: true
+        correct_keys:
+          type: array
+          items:
+            type: string
+        explanation:
+          type: string
+          nullable: true
+
     Quiz:
       type: object
       properties:
@@ -191,7 +262,7 @@ components:
         questions:
           type: array
           items:
-            $ref: "#/components/schemas/Question"
+            $ref: "#/components/schemas/LegacyQuizQuestion"
         created_at:
           type: string
           format: date-time
@@ -848,6 +919,46 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/RecentQuiz"
+
+  /quizzes/{quiz_id}/questions/{question_id}/check:
+    post:
+      operationId: checkQuizAnswer
+      summary: Grade one question and reveal its answer, after a selection is committed
+      description: >-
+        Feedback only - nothing is recorded. Exists so the quiz payload can omit
+        `correct_answer`: the client learns an answer only for a question the
+        student has just answered. The score of record is still computed by
+        `POST /quizzes/{quiz_id}/submit` (or the attempts path), which re-grades
+        server-side from the stored `correct_keys`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: quiz_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: question_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckAnswerRequest"
+      responses:
+        "200":
+          description: Feedback for this one question
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckAnswerResponse"
+        "400":
+          description: No selection supplied
+        "404":
+          description: The question does not belong to this quiz
 
   /quizzes/{quiz_id}/submit:
     post:

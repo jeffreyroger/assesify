@@ -25,7 +25,11 @@ def upgrade():
         sa.Column('code_verifier', sa.String(length=256), nullable=False),
         sa.Column('redirect_uri', sa.String(length=500), nullable=False),
         sa.Column('provider', sa.String(length=50), nullable=False, server_default='karmayogi'),
-        sa.Column('consumed', sa.Boolean(), nullable=False, server_default=sa.text('0')),
+        # NOTE: must be sa.false(), not sa.text('0'). PostgreSQL rejects an
+        # integer DEFAULT on a boolean column ("default expression is of type
+        # integer"), which made this migration fail on Postgres while working
+        # fine on SQLite. sa.false() renders correctly on both dialects.
+        sa.Column('consumed', sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column('created_at', sa.DateTime(), nullable=True),
         sa.Column('expires_at', sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], name='fk_oauth_states_user_id_users'),

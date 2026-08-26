@@ -16,7 +16,7 @@ from flask import Flask, request, jsonify
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
-from app.core.config import Config
+from app.core.config import Config, validate_required_secrets
 from app.models.users import db
 from app.models.submission import QuizAttempt, QuizAnswer
 from app.models.audit_log import AuditLog
@@ -66,6 +66,11 @@ def error_response(status: int, message: str | None = None, code: str | None = N
 
 
 def create_app():
+    # Fail fast on an insecure production configuration, before anything is
+    # served. Config only covers SECRET_KEY/JWT_SECRET_KEY; this also forces
+    # the lazily-read PII secrets to resolve now.
+    validate_required_secrets()
+
     app = Flask(__name__)
     app.config.from_object(Config)
 
@@ -181,7 +186,14 @@ def create_app():
     app.register_blueprint(quiz_api_bp, url_prefix="/api/v1/quizzes")
     app.register_blueprint(students_bp, url_prefix="/api/v1/students")
     app.register_blueprint(materials_bp, url_prefix="/api/v1/materials")
+    # Spec §4.3 names these endpoints /attempts/:id/... . The blueprint was
+    # originally mounted at /api/v1 only, which produced /api/v1/:id/... and
+    # left GET /api/v1/attempts/:id/result (already called by the results page)
+    # returning 404. Register the same blueprint under both prefixes so the
+    # spec paths work and the legacy paths keep working - one implementation.
     app.register_blueprint(attempts_bp, url_prefix="/api/v1")
+    app.register_blueprint(attempts_bp, url_prefix="/api/v1/attempts",
+                           name="attempts_spec")
     app.register_blueprint(analytics_v1_bp, url_prefix="/api/v1")
     app.register_blueprint(admin_bp, url_prefix="/api/v1/admin")
 
@@ -240,6 +252,11 @@ def create_app():
         from flask import jsonify
         headers = {k: v for k, v in request.headers.items()}
         return jsonify(headers)
+
+    # OpenTelemetry (spec §9). Opt-in via OTEL_ENABLED; a no-op otherwise, so
+    # the request path is unchanged unless tracing is explicitly turned on.
+    from app.core.tracing import init_tracing
+    init_tracing(app)
 
     return app
 

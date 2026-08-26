@@ -20,17 +20,25 @@ class Quiz(db.Model):
         count = Question.query.filter_by(quiz_id=self.id).count()
         return count or (len(self.questions) if self.questions else 0)
 
-    def to_dict(self):
+    def to_dict(self, include_answers=False):
         # Prefer relational Question rows (the spec-compliant path) when they
         # exist, converting them back into the legacy generator-dict shape so
         # existing frontend consumers of this JSON blob don't need to change.
         # The `questions` JSON column is kept only as a deprecated fallback
         # for quizzes that predate the relational Question rows.
+        #
+        # `include_answers` defaults to False: the sanitized (student) view of
+        # spec §4.3 carries no `correct_answer`/`answer`. Callers that have
+        # established the caller is the owning teacher pass True.
         from app.models.assessment import Question
-        from app.services.quiz_generation import legacy_shape_from_questions
+        from app.services.quiz_generation import legacy_shape_from_questions, redact_legacy_blob
 
         related = Question.query.filter_by(quiz_id=self.id).order_by(Question.id).all()
-        questions_data = legacy_shape_from_questions(related) if related else (self.questions or [])
+        if related:
+            questions_data = legacy_shape_from_questions(related, include_answers=include_answers)
+        else:
+            blob = self.questions or []
+            questions_data = blob if include_answers else redact_legacy_blob(blob)
 
         return {
             "id": self.id,

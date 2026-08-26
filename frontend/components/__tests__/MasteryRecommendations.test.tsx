@@ -37,9 +37,11 @@ describe("MasteryRecommendations", () => {
     it("renders the mastery radar chart with the provided competency data", async () => {
         mockFetchSequence(
             {
+                // Matches CompetencyMastery.to_dict(): updated_at is always
+                // returned by GET /api/v1/students/:id/mastery.
                 mastery: [
-                    { competency_tag: "budgeting", mastery: 0.45 },
-                    { competency_tag: "policy-analysis", mastery: 0.82 },
+                    { competency_tag: "budgeting", mastery: 0.45, updated_at: "2026-08-20T10:00:00" },
+                    { competency_tag: "policy-analysis", mastery: 0.82, updated_at: "2026-08-20T10:00:00" },
                 ],
             },
             { recommendations: [] }
@@ -57,11 +59,16 @@ describe("MasteryRecommendations", () => {
             { mastery: [] },
             {
                 recommendations: [
+                    // Matches karmayogi_service._internal_fallback(): score and
+                    // source are always present on the wire.
                     {
                         competency_tag: "budgeting",
+                        course_id: null,
                         title: "Remedial: Budgeting Basics",
                         reason: "Karmayogi is unavailable, showing an internal remedial quiz",
                         url: "/quiz/1",
+                        score: 0.5,
+                        source: "internal",
                         karmayogi_available: false,
                     },
                 ],
@@ -83,9 +90,12 @@ describe("MasteryRecommendations", () => {
                 recommendations: [
                     {
                         competency_tag: "budgeting",
+                        course_id: "1",
                         title: "Public Finance 101",
                         reason: "Matches your budgeting gap",
                         url: "https://igotkarmayogi.gov.in/course/1",
+                        score: 0.9,
+                        source: "karmayogi",
                         karmayogi_available: true,
                     },
                 ],

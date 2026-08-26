@@ -9,7 +9,9 @@ export default defineConfig({
         globals: true,
         setupFiles: ["./vitest.setup.ts"],
         css: true,
-        exclude: ["node_modules/**", ".next/**"],
+        // `e2e/**` is Playwright's (npm run test:e2e); it needs real
+        // servers and must never be pulled into the hermetic unit run.
+        exclude: ["node_modules/**", ".next/**", "e2e/**"],
         coverage: {
             provider: "v8",
             reporter: ["text", "json-summary"],

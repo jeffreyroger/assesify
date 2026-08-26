@@ -46,6 +46,13 @@ def save_response(attempt_id):
     if not question:
         return _error("VALIDATION_ERROR", "Question does not belong to this quiz.")
     response = Response.query.filter_by(attempt_id=attempt.id, question_id=question.id).first()
+    if response and response.revealed_at is not None:
+        # The answer key for this question has already been shown to the
+        # student (via the /check feedback endpoint), so the recorded answer is
+        # final - otherwise feedback would be a free retry.
+        return _error("ANSWER_LOCKED",
+                      "Feedback has already been given for this question; the answer is final.",
+                      409)
     if not response:
         response = Response(attempt_id=attempt.id, question_id=question.id)
         db.session.add(response)

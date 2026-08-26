@@ -59,5 +59,10 @@ class Response(db.Model):
     selected_keys = db.Column(db.JSON, nullable=False, default=list)
     is_correct = db.Column(db.Boolean, nullable=True)
     time_ms = db.Column(db.Integer, nullable=True)
+    # Set the first time the answer key for this question is revealed to the
+    # student (via POST /api/quizzes/<id>/questions/<qid>/check). Once set the
+    # response is locked: it can no longer be overwritten, so a student cannot
+    # harvest feedback and then change their answer.
+    revealed_at = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (db.UniqueConstraint("attempt_id", "question_id", name="uq_response_attempt_question"),)

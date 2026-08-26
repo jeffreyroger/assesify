@@ -14,7 +14,7 @@ Markers: `[x]` implemented & verified · `[ ]` missing · `[~]` partial · `[B]`
 - [x] `competency_mastery` — `app/models/mastery.py`
 - [x] `recommendations` table — **persisted this session**: `GET /students/:id/recommendations` (`backend/app/api/v1/students/routes.py`) now upserts each computed recommendation into `Recommendation` (`app/models/mastery.py`) keyed on `(student_id, competency_tag, karmayogi_course_id)`, storing score/reason/title/url/created_at. Computation path (`karmayogi_service.recommend_for_gap`) unchanged. Verified live via a smoke script: one gap → one DB row confirmed (`DB rows: [(1, 'budgeting', None, 1.0)]`); backend pytest suite still `26 passed`.
 - [x] `refresh_tokens` — `app/models/refresh_token.py` + migration (per recent commit)
-- [B] Actual Postgres deployment — dev/test run on SQLite (`backend/assesify_dev.db`, `sqlite:///:memory:` in tests); no Docker Postgres available in this environment. Models are dialect-agnostic SQLAlchemy so Postgres should work, but untested here.
+- [x] Actual Postgres deployment — **verified 2026-08-26** against a real Dockerized PostgreSQL 16 on port 5433 (see the final follow-up entry): all 18 migrations reach head `a1b2c3d4e5f7`, and a scripted HTTP flow (register/login/quiz/attempt/submit/result) passes 10/10 against Postgres. One real PG-only migration bug (boolean `server_default`) was found and fixed. Originally recorded as: dev/test run on SQLite — dev/test run on SQLite (`backend/assesify_dev.db`, `sqlite:///:memory:` in tests); no Docker Postgres available in this environment. Models are dialect-agnostic SQLAlchemy so Postgres should work, but untested here.
 - [x] Alembic migration heads — **fixed this session**: `backend/migrations/versions/` had **three** divergent unmerged heads (`76d4ba2e9c10`, `840eb69db66d`, `e5f6a7b8c9d0`, all descending from `f5c8d1966aa6`), not the two previously guessed. Traced the full `down_revision` chain manually (confirmed via `flask db heads` once invoked correctly — the trick is `FLASK_APP=app.main:app`, since `app/main.py` builds a top-level `app = create_app()` instance rather than a factory function alembic can call by name). Reconciled with `flask db merge -m "merge divergent heads" 76d4ba2e9c10 840eb69db66d e5f6a7b8c9d0`, producing `migrations/versions/c34d7f13f504_merge_divergent_heads.py` (single new head, no-op up/down). While verifying `flask db upgrade head` against a scratch SQLite DB (`backend/scratch_migration_test.db`, deleted after, `assesify_dev.db` never touched), found and fixed a **second real bug**: `840eb69db66d_add_profile_pic_to_user_and_teacher_id_.py` called `batch_op.create_foreign_key(None, ...)` / `batch_op.drop_constraint(None, ...)` — SQLite's batch-mode ALTER TABLE emulation requires a named constraint, so upgrade raised `ValueError: Constraint must have a name` and would have failed for anyone actually running migrations against SQLite. Fixed by naming the constraint (`fk_lessons_teacher_id_users`) in both `upgrade()` and `downgrade()`. Verified: `flask db upgrade head` now runs cleanly end-to-end against a fresh scratch DB (13 migrations in order, ending at `c34d7f13f504`). Full pytest suite re-run after: `32 passed, 0 failed` — no regressions.
 
 ## Auth API (spec §4.1)
@@ -92,7 +92,7 @@ Markers: `[x]` implemented & verified · `[ ]` missing · `[~]` partial · `[B]`
 - [x] Structured JSON request logging — one JSON line per request (`event`, `request_id`, `method`, `path`, `status`, `duration_ms`). Not `structlog` as spec literally names, but the same structured-JSON outcome; test asserts the emitted line parses as JSON with those fields.
 - [x] Prometheus `/metrics` endpoint — exists and was **extended this session** with `HELP` lines and a `assesify_responses_by_status_total{status="…"}` series alongside the existing request/error/duration counters. Test asserts the exposition format, the error counter incrementing on a 404, and the per-status label.
   - Incidental fix: `add_cors_headers` in `app/main.py` contained ~10 lines of dead code duplicated *after* its `return response` (metrics/logging written twice, second copy unreachable). Removed.
-- [ ] OpenTelemetry tracing → OTLP collector, Grafana dashboards — not implemented; both need external collector/dashboard infrastructure that doesn't exist in this environment, and neither is meaningfully verifiable locally.
+- [~] OpenTelemetry tracing — **SDK wired 2026-08-26** (`backend/app/core/tracing.py`, opt-in via `OTEL_ENABLED`, span-per-request verified with an in-memory exporter in `app/tests/test_tracing.py`, correlation id copied onto the span). `[B]` for the OTLP collector / Grafana dashboards half — no collector in this environment. Originally recorded as: not implemented; both need external collector/dashboard infrastructure that doesn't exist in this environment, and neither is meaningfully verifiable locally.
 
 ## Testing (spec §10)
 - [x] Backend unit/integration — `pytest` suite runs clean after fixes made this session.
@@ -100,13 +100,13 @@ Markers: `[x]` implemented & verified · `[ ]` missing · `[~]` partial · `[B]`
   - **After this session**: `26 passed, 0 failed` (`backend/pytest.ini` added to exclude 3 root-level manual smoke scripts — `upload_test.py`, `test_personalization.py`, `test_weekly_system.py` — which hit a live server / require a pre-existing DB and aren't real pytest tests).
   - Fixed: `ml/recommender.py` groupby bug (real bug, not test-only — would have silently broken recommendation aggregation in production whenever `subtopic` is `None`).
   - Fixed: `ml/tests/test_upload_endpoint.py` was stale (referenced a nonexistent legacy route with a hardcoded foreign machine path, no auth) — rewritten to hit the real `/api/v1/materials` endpoint with proper JWT auth; now passes and gives real coverage.
-- [B] Backend integration tests against real Postgres (testcontainers) — not run; SQLite used throughout (adequate for logic verification, not for Postgres-specific behavior like `GIN` indexes or `TEXT[]` arrays).
+- [~] Backend integration tests against real Postgres — the pytest suite still runs on SQLite, but the app itself is now verified against real Postgres end-to-end (2026-08-26; see the final follow-up entry). Testcontainers-based *automated* PG tests remain unwritten. Originally recorded as: not run — not run; SQLite used throughout (adequate for logic verification, not for Postgres-specific behavior like `GIN` indexes or `TEXT[]` arrays).
 - [x] **Frontend unit tests — coverage target met (spec §10, ≥75%)**: `@vitest/coverage-v8` installed, a `coverage` block added to `frontend/vitest.config.mts` (v8 provider, scoped to `app/`, `components/`, `lib/` and excluding `__tests__`, the generated `lib/api-types.ts`, and layout files so the number reflects real application code), and a `npm run test:coverage` script added. **Measured: 80.69% statements / 81.35% lines / 72.22% functions / 65.69% branches**, from `118 tests across 12 files, all passing` (up from 17 tests / 27.69% statements at the start of this session). Full detail in the follow-up session entry below.
 - [~] Frontend unit tests (Vitest+RTL) — original setup session. `vitest@4.1.11`, `@testing-library/react@16.3.2` (React-19-compatible), `@testing-library/jest-dom@7.0.1`, `@testing-library/user-event@14`, `@vitejs/plugin-react@6`, `jsdom@30` added as `frontend` devDependencies (chosen over `next/jest` because this project uses Next.js 16.1.1 with Turbopack and no existing Jest config — a Vite-native Vitest setup integrates more directly and doesn't require reconciling Next's Jest SWC transform with Turbopack). `frontend/vitest.config.mts` (`.mts` so Vite's native config loader doesn't warn about CJS/ESM ambiguity) wires `@vitejs/plugin-react`, `jsdom` environment, and the `@/*` path alias from `tsconfig.json`; `frontend/vitest.setup.ts` adds `@testing-library/jest-dom` matchers plus a `ResizeObserver`/`getBoundingClientRect` stub (jsdom implements neither, and Recharts' `<ResponsiveContainer>` needs them to size the chart to non-zero dimensions). `"test": "vitest run"` and `"test:watch": "vitest"` added to `frontend/package.json`. `frontend/tsconfig.json` now excludes `**/__tests__/**` and the vitest config/setup files so `next build`'s TypeScript pass doesn't type-check test-only code.
   - **5 test files, 17 tests, all passing**: `frontend/lib/__tests__/api.test.ts` (`api.login` request shape + 401 auto-logout, `api.getRecentQuizzes` auth header presence/absence — mocked `global.fetch`); `frontend/components/__tests__/MasteryRecommendations.test.tsx` (renders nothing for a teacher account, radar chart renders competency tick labels from mock mastery data, Karmayogi-unavailable banner shows/hides based on `karmayogi_available` — mocked `fetch` + `localStorage`); `frontend/app/quiz/[id]/__tests__/page.test.tsx` (renders question + options, selecting an option enables the Check button, checking an answer autosaves via `POST .../responses` with the correct `question_id`/`selected_keys`, and the final Continue click calls `POST .../submit` — mocked `next/navigation` `useParams` + `fetch`); `frontend/app/(auth)/login/__tests__/page.test.tsx` and `frontend/app/(auth)/register/__tests__/page.test.tsx` (form renders, submit calls the mocked `api.login`/`api.register` with correct args, success path stores token/redirects, failure path shows the error and does not redirect — mocked `@/lib/api` + `next/navigation` `useRouter`).
   - **Superseded by the follow-up session below** — coverage is now measured and the suite is much larger. Kept for history.
   - Verified: `npm test` → `5 passed | 17 passed (17)`. `npm run build` re-run after all test-infra changes → still succeeds (11 routes, same as before). `backend/.venv/Scripts/python.exe -m pytest -q` re-run → still `34 passed, 0 failed` (frontend-only change, no backend files touched).
-- [ ] E2E (Playwright), Load tests (Locust) — still not attempted; no browser automation runtime or load-testing infra available in this environment, and per the task's scoping guidance these were treated as out-of-scope for a single session rather than stubbed. Both would layer cleanly on top of the app as-is (Playwright against `npm run dev`/`next start`; Locust against the Flask dev server) whenever that infra is available.
+- [x] **E2E (Playwright) — done 2026-08-26**: `frontend/e2e/quiz-flow.spec.ts` + `frontend/playwright.config.ts`, chromium downloaded and running locally, 2 tests passing against both real servers via `npm run test:e2e`. `[~]` Load tests (Locust): `backend/locustfile.py` authored + validated (`app/tests/test_locustfile.py`), the 500-user run itself `[B]`. See the final follow-up entry. Superseded note below kept for history — originally recorded as: still not attempted; no browser automation runtime or load-testing infra available in this environment, and per the task's scoping guidance these were treated as out-of-scope for a single session rather than stubbed. Both would layer cleanly on top of the app as-is (Playwright against `npm run dev`/`next start`; Locust against the Flask dev server) whenever that infra is available.
 
 ---
 
@@ -264,3 +264,647 @@ New `backend/app/tests/test_personalized_quiz_relational.py` (6 tests, conventio
 - `cd frontend && npm run build` → succeeds, same 14 route entries.
 - `backend/openapi.yaml`'s `LegacySubmitQuizRequest` documents the optional `question_id`/`selected_keys` fields; `npm run gen:types` re-run and the build re-verified after.
 - `backend/ml/models/*.joblib` churn from the test run reverted; nothing committed or pushed; `backend/assesify_dev.db` untouched.
+
+## Follow-up session (2026-08-26): wired the real `question_id` through the frontend
+
+Closes the "honest limitation" left open by the entry above: server-authoritative
+grading existed on the backend but nothing ever exercised it, because the read
+shape the frontend consumes carried no question id.
+
+### The latent bug that was actually live (not merely dormant)
+`quiz_generation.legacy_shape_from_questions()` emitted only
+`{question, options, correct_answer, answer, hint}` — no `id`. So on every
+relationally-stored quiz, `frontend/app/quiz/[id]/page.tsx::saveResponse()`
+hit its `if (!attemptId || !question.id) return;` guard and the autosave POST
+to `/api/v1/<attempt>/responses` **never fired at all**. The existing frontend
+test did not catch this because its fixture hand-supplies `id: 101`, a value the
+real API never returned. (Had the guard not existed, the endpoint would have
+rejected the payload anyway: `save_response()` returns
+`400 VALIDATION_ERROR` when `question_id` is falsy.)
+
+### Changes
+1. **`backend/app/services/quiz_generation.py`** — `legacy_shape_from_questions()`
+   now emits `"id": question.id`. Purely additive; every pre-existing key and
+   value is unchanged. Two existing tests asserted the exact key set and were
+   updated to include `id` (`test_legacy_quiz_unification.py`,
+   `test_personalized_quiz_relational.py`).
+2. **`frontend/app/quiz/[id]/page.tsx`** — payload-level only, no visual or
+   interaction change. `submitQuiz()`'s legacy `POST /api/quizzes/:id/submit`
+   body now carries, per question, `question_id` (when the question has one) and
+   `selected_keys` derived from the student's **actual** stored selection in
+   `answersMap`, plus `answer` set to the real chosen option text instead of the
+   `"Submitted via API"` placeholder. The legacy `question`/`is_correct` fields
+   are still sent alongside, so a quiz with no relational rows (or any older
+   client) scores exactly as before — the backend prefers `question_id` and
+   ignores the client's `is_correct` only when it is present. A small
+   `optionKeyFor()` helper replaces the duplicated text→key mapping that
+   `saveResponse()` already had.
+3. **`backend/openapi.yaml`** — the `Quiz` schema's `questions` array previously
+   `$ref`'d the *relational* `Question` schema, which is not what
+   `GET /api/quizzes/:id` returns. Added an accurate `LegacyQuizQuestion` schema
+   (including the new `id`) and pointed `Quiz.questions` at it.
+   `npm run gen:types` re-run; build re-verified.
+
+### Deliberate scope calls (conservative default)
+- **Auth header added to the legacy submit call only.** The page sends no
+  `Authorization` header anywhere, and `POST /api/quizzes/:id/submit` is
+  `@jwt_required()` with `JWT_TOKEN_LOCATION = ["headers"]` — so today that
+  submit silently 401s and server-side grading could never engage no matter what
+  payload was sent. `submitQuiz()` now attaches `Bearer <token>` from
+  `getToken()` when one exists. **The attempt-start call was deliberately left
+  unauthenticated**: adding a token there would make `attemptId` non-null, which
+  would flip `submitQuiz()` onto the entirely different `/api/v1/<id>/submit`
+  attempts path (different scoring source, no gamification) — a behavioural
+  change well beyond a payload fix. Consequence, stated honestly: the autosave
+  path still does not fire in production because `attemptId` stays null; the
+  `id` it needs is now available, so wiring auth into attempt-start is a
+  single-line follow-up whenever that path switch is intended.
+- No UX change: no new screens, no markup or styling touched.
+
+### ~~Remaining integrity gap (spec §8) — `correct_answer` is still shipped to the client~~ — **CLOSED**, see the 2026-08-26 follow-up at the end of this file
+`legacy_shape_from_questions()` continues to include `correct_answer` (and the
+explanation) in the payload of `GET /api/quizzes/:id`, which is **unauthenticated**.
+A student can therefore read every correct answer straight out of the network
+response before answering. It was **not** removed in this pass because the
+quiz-taking page uses it for immediate per-question feedback (the green/red
+option highlight and the "Correct!/Incorrect" footer are computed entirely
+client-side from it), so removing it would break the working UX. This is now
+**partially mitigated**: the *score of record* no longer depends on it, because
+the server recomputes correctness from the stored `correct_keys` whenever
+`question_id` is present — which, as of this session, it always is. Closing the
+gap properly means a sanitized read endpoint plus a server round-trip for
+per-question feedback (`/api/v1/<attempt>/responses` already returns
+`is_correct` and would serve exactly that), which is a UX-affecting redesign.
+
+### Tests added
+- `backend/app/tests/test_question_id_wiring.py` (4 new, conventions from
+  `test_personalized_quiz_relational.py`, no Gemini/credentials/network):
+  the legacy shape exposes ids matching the relational rows with all legacy keys
+  intact; that served id round-trips into `/api/v1/<attempt>/responses`
+  (`200`, `is_correct` computed server-side); the exact payload the frontend now
+  sends is graded server-side and **overrides a lying client in both directions**
+  (a right answer flagged `is_correct: false` and a wrong answer flagged
+  `is_correct: true` → 50%, not 0% or 100%); and a payload with no `question_id`
+  still scores off the client flags exactly as before.
+- `frontend/app/quiz/[id]/__tests__/page.test.tsx` (2 new): the submit body
+  carries the real `question_id`, `selected_keys: ["B"]` and `answer: "Berlin"`
+  for the option the student actually picked; and a question with no `id` still
+  produces the legacy body with no `question_id` key. `setupFetchMock()` gained
+  optional `attemptOk`/`question` overrides so the legacy submit branch can be
+  exercised (existing call sites unchanged).
+
+### Verification
+- `backend/.venv/Scripts/python.exe -m pytest -q` → **75 passed, 0 failed**
+  (71 pre-existing + 4 new).
+- `cd frontend && npm test` → **12 files, 120 tests passed, 0 failed**
+  (118 pre-existing + 2 new).
+- `cd frontend && npm run build` → succeeds, same route set as before.
+- `backend/ml/models/*.joblib` churn from the test run reverted; nothing
+  committed or pushed; `backend/assesify_dev.db` untouched.
+
+---
+
+## Follow-up session (2026-08-26): closed the `correct_answer` exposure gap
+
+Closes the "Remaining integrity gap" flagged in the entry above. The invariant
+now enforced: **a student never receives the correct answer for a question they
+have not answered.** Immediate per-question feedback still works, unchanged
+visually.
+
+### Design chosen: sanitize the read, reveal one question at a time on commit
+Rejected "just delete the field" — `frontend/app/quiz/[id]/page.tsx` read
+`currentQuestion.correct_answer` in eight render paths (option highlighting,
+the Correct!/Incorrect footer, the footer tint, the Continue button variant and
+class) plus `currentQuestion.answer` for the explanation panel. Deleting the
+field blind would have silently degraded every one of them to "always
+incorrect".
+
+Instead:
+
+1. **`backend/app/services/quiz_generation.py`** — `legacy_shape_from_questions()`
+   takes `include_answers`, **defaulting to `False`** (safe by default). The
+   sanitized item is exactly `{id, question, options, hint}`; `correct_answer`
+   and `answer` (the explanation) are *omitted*, not nulled, so a leak is
+   impossible to miss in a test. New `redact_legacy_blob()` applies the same
+   strip to the deprecated `Quiz.questions` JSON-blob fallback, so the invariant
+   holds on **every** read path rather than only the relational one.
+2. **`backend/app/models/quiz.py`** — `Quiz.to_dict(include_answers=False)`
+   threads the flag through both the relational and blob branches.
+3. **`backend/app/api/v1/quizzes/routes.py`** — `GET /api/quizzes/:id` is now
+   role-aware (spec §4.3 "Full quiz (teacher view) or sanitized (student)").
+   `_may_see_answers()` reveals answers only to a teacher who owns the quiz's
+   lesson, mirroring the `_teacher_owns()` check that
+   `app/api/v1/quiz_api/routes.py` already used for the v1 read endpoint.
+   Authentication stays *optional* on this route — it has always accepted
+   anonymous callers, and an anonymous caller simply gets the student view — so
+   no working flow 401s that did not before.
+4. **New endpoint `POST /api/quizzes/<quiz_id>/questions/<question_id>/check`**
+   (`@jwt_required()`). Body `{"selected_keys": ["B"]}` or `{"answer": "<text>"}`;
+   returns `{question_id, is_correct, correct_answer, correct_keys, explanation}`
+   **for that one question only**. It reuses the existing
+   `_grade_against_question()` so feedback and the score of record can never
+   disagree. It **records nothing** — no attempt, no response row — so it cannot
+   interfere with the attempts path or with gamification.
+5. **`frontend/app/quiz/[id]/page.tsx`** — new `feedbackMap` state keyed by
+   question. `handleCheck()` is now async: it saves the response as before,
+   enters review mode *immediately* (so the UI never stalls on the round-trip),
+   then fills in `feedbackMap[qKey]` from `/check` and awards XP from the
+   **server's** `is_correct` rather than a client-side string compare. Every
+   former `currentQuestion.correct_answer` read became `currentFeedback?.…`;
+   the explanation panel prefers `currentFeedback.explanation`. The green/red
+   reveal is gated on `currentFeedback !== undefined`, so a pending or failed
+   round-trip shows neutral styling instead of falsely marking a right answer
+   wrong. `submitQuiz()` now sends the server-confirmed `is_correct` when it has
+   one (still ignored server-side whenever `question_id` is present).
+   `Question.correct_answer`/`answer` became optional in the TS interface.
+6. **`backend/openapi.yaml`** — `LegacyQuizQuestion.required` drops
+   `correct_answer`/`answer` (documented as owning-teacher-view only); new
+   `CheckAnswerRequest`/`CheckAnswerResponse` schemas and the
+   `/quizzes/{quiz_id}/questions/{question_id}/check` path. `npm run gen:types`
+   re-run; build re-verified.
+
+**The score of record was not touched.** `POST /api/quizzes/:id/submit` and the
+attempts path both still recompute correctness server-side from the stored
+`correct_keys`; a test pins this explicitly (client lies about both answers,
+score is still 50%).
+
+### Graceful-degradation choices (documented rather than risked)
+- **Blob-only quizzes** (no relational `Question` rows) are sanitized too, but
+  cannot use `/check` because it resolves a real `Question` row. Their questions
+  carry no `id`, so the page skips the round-trip and falls back to a local
+  comparison that now finds no `correct_answer` — feedback degrades to
+  "incorrect, no explanation". Accepted because migration
+  `b2c3d4e5f6a7_backfill_legacy_quiz_questions` backfills `Question` rows for
+  *every* blob quiz, so this branch is unreachable on a migrated database. The
+  alternative (index-addressed pseudo-ids) would have leaked into the autosave
+  and submit payloads for no real-world gain.
+- **A failed or 401 `/check` call** falls back to the same local comparison and
+  still advances to review mode with a working Continue button; it never blocks
+  the student.
+
+### Residual weakness (honest)
+`/check` is unmetered: a determined student could POST an arbitrary guess for
+every question up front and harvest the answer key before answering, then
+re-submit. This is inherent to any immediate-feedback design that does not bind
+feedback to a recorded attempt. Closing it means making `/check` write through
+an attempt (first selection wins), which needs an `attempt_id` the page does not
+currently have — see the still-open attempt-start auth note below. What *is*
+closed is the passive leak: the answers no longer sit in the quiz payload.
+
+### Still open (carried forward, unchanged)
+The attempt-start call in `page.tsx` still sends no `Authorization` header, so
+`attemptId` stays null in production and the autosave path never fires. Left
+alone for the same reason as the previous session: authenticating it flips
+`submitQuiz()` onto the `/api/v1/<id>/submit` attempts path, which scores from a
+different source and skips gamification.
+
+### Task B — frontend fixture drift audit
+Audited `frontend/app/quiz/[id]/__tests__/`, `frontend/lib/__tests__/`,
+`frontend/components/__tests__/` and the `app/*/__tests__/` page suites against
+`backend/openapi.yaml` and the real serializers.
+
+**Fixed (real, behaviour-relevant drift):**
+- `app/quiz/[id]/__tests__/page.test.tsx` — the fixture supplied
+  `correct_answer` and `answer`, which the sanitized student payload does not
+  return. Same failure mode as the `id: 101` bug the previous session found:
+  a test green against a payload production never sends. The fixture is now the
+  real sanitized shape, with a separate `CHECK_FEEDBACK` fixture for the
+  `/check` response, and a comment warning against adding answers back.
+- Same file — the `GET /api/quizzes/:id` mock returned only `{questions}`. It
+  now returns the full `Quiz.to_dict()` envelope (`id`, `lesson_id`,
+  `questions`, `created_at`).
+- Same file — **no test asserted an `Authorization` header on any call**, the
+  exact hole that let the silently-401ing submit ship. The suite now stores a
+  token and asserts `Bearer test-token` on both the `@jwt_required` `/check`
+  and legacy `/submit` calls.
+- `components/__tests__/MasteryRecommendations.test.tsx` — mastery rows omitted
+  `updated_at` and recommendations omitted `score`/`source`/`course_id`, all of
+  which `CompetencyMastery.to_dict()` and `karmayogi_service` always return and
+  all of which are `required` in the OpenAPI schemas. Fixtures completed.
+
+**Found, deliberately not changed:**
+- `lib/api.ts::getWeeklyPerformance()` sends `user_id=<id>` in the query string
+  and `generateWeeklyTest()` sends `user_id` in the body; both backend handlers
+  ignore them entirely and derive the student from the JWT (deliberately, to
+  stop id spoofing). `lib/__tests__/api.client.test.ts` asserts these params.
+  Harmless dead payload, and removing it is a production change with zero
+  security or behaviour benefit — reported, not touched.
+- `components/__tests__/TeacherUploadModal.test.tsx` mocks `uploadMaterial` →
+  `{quiz_id: 1}` while production returns
+  `{message, quiz_id, lesson_id, title, num_questions}`. The component discards
+  the response entirely, so this is not behaviour-relevant; left alone rather
+  than churned.
+- The rest of `lib/__tests__/api.client.test.ts` asserts URL/method/headers/body
+  rather than response shapes, and every URL, verb and auth header it asserts
+  matches the registered routes. No drift.
+
+### Tests added
+- `backend/app/tests/test_answer_redaction.py` (8 new, conventions from
+  `test_question_id_wiring.py`, no Gemini/credentials/network): the student
+  payload is exactly `{id, question, options, hint}` and the raw body contains
+  no `"correct_answer"` at all; an anonymous reader gets the same; the **owning
+  teacher** still gets the full six-key legacy shape with the real answer and
+  explanation; a *different* teacher gets the sanitized payload; `/check`
+  returns the exact feedback body for a right pick, a wrong pick and a
+  text-addressed pick; a `question_id` belonging to **another quiz** is rejected
+  `404 NOT_FOUND` **and that response body leaks nothing**; `/check` is `401`
+  anonymous and `400 VALIDATION_ERROR` with no selection; and `/check` creates
+  no `QuizAttempt` while a submit whose client lies about *both* answers still
+  scores a server-computed 50%.
+- `frontend/app/quiz/[id]/__tests__/page.test.tsx` (3 new): nothing on screen
+  reveals the answer before Check and no `/check` request has been made; Check
+  posts `{selected_keys:["A"]}` to `/api/quizzes/1/questions/101/check` with the
+  bearer token; review-mode explanation and the Incorrect footer render from the
+  **server** response; and a failed `/check` still lands on a working Continue
+  button.
+- Updated in place: `test_legacy_quiz_unification.py` (sanitized default **and**
+  a teacher-view assertion, on both the relational and the blob branch),
+  `test_personalized_quiz_relational.py` (`LEGACY_QUESTION_KEYS` is now the
+  sanitized set — those come from the student-facing generation endpoints),
+  `test_question_id_wiring.py` (its legacy-key assertions moved onto
+  `to_dict(include_answers=True)`).
+
+### Verification
+- `backend/.venv/Scripts/python.exe -m pytest -q` → **83 passed, 0 failed**
+  (75 pre-existing + 8 new).
+- `cd frontend && npm test` → **12 files, 123 tests passed, 0 failed**
+  (120 pre-existing + 3 new).
+- `cd frontend && npm run build` → succeeds, same 14 route entries.
+- No Alembic migration needed: serialization/read shape only, no schema change.
+- `backend/ml/models/*.joblib` churn from the test run reverted; nothing
+  committed or pushed; `backend/assesify_dev.db` untouched.
+
+---
+
+## Follow-up session (2026-08-26): authenticated attempt + autosave, `/check` bound to an attempt, Playwright E2E, OTel + Locust
+
+Closes the two items every prior pass carried forward, then picks up the three
+testing/observability items that were previously assumed to need absent infra.
+
+### 1. Authenticated attempt + working autosave — `[x]`
+
+**The trap, traced first.** `submitQuiz()` branched on `attemptId`: non-null sent
+the quiz to `POST /api/v1/<attempt>/submit` (`attempts_bp`), null sent it to
+`POST /api/quizzes/<id>/submit` (`quizzes_bp`). The two are not equivalent:
+
+| | attempts path | legacy path (what production uses) |
+|---|---|---|
+| score source | recorded `responses` rows only | server-grades the submitted payload from `correct_keys` |
+| gamification | none | health, streak, `diamonds_earned` (+5/correct) |
+| response body | `{attempt_id, score, correct, total}` | `{message, attempt_id, score, health, streak, diamonds_earned}` |
+| mastery | `refresh_student_mastery` | `refresh_student_mastery` |
+
+So simply authenticating attempt-start would have silently moved the score of
+record onto a different endpoint and dropped all XP.
+
+**Design chosen — keep the legacy submit as the single score of record, and
+have it *reuse* the open attempt.** Least invasive of the three options, and it
+avoids inventing a third path:
+
+- `frontend/app/quiz/[id]/page.tsx` — the attempt-start call now sends
+  `Authorization: Bearer <token>` (and is skipped entirely when there is no
+  token, instead of firing a request that can only 401). `submitQuiz()`'s
+  `if (attemptId)` branch is **deleted**: the page always submits through
+  `POST /api/quizzes/<id>/submit`, so `attemptId` no longer decides which
+  endpoint scores the quiz. `saveResponse()` now sends the bearer token too
+  (without it the autosave 401s and no `responses` row is ever written) and
+  returns whether the save landed; `handleCheck()` awaits it before asking for
+  feedback.
+- `backend/app/api/v1/quizzes/routes.py::submit_quiz` — looks for this
+  student's open attempt on this quiz (`completed_at IS NULL`) and **reuses**
+  it instead of inserting a second `quiz_attempts` row. One quiz-taking session
+  is now one attempt row, with the autosaved item-level `responses` attached to
+  the attempt that was actually scored. Score, gamification and response body
+  are byte-identical to before; a client that never starts an attempt still
+  gets a freshly created one, exactly as before.
+- Same function now stamps `attempt.completed_at`. It previously left it NULL,
+  which meant **every legacy submission was invisible** to
+  `refresh_student_mastery`, `get_weekly_performance` and
+  `analytics_v1` — all three filter on `completed_at`. That was a live bug, not
+  a behaviour change: nothing that used to be counted stops being counted.
+
+New `backend/app/tests/test_attempt_autosave.py` (4): an authenticated
+attempt-start followed by an autosave persists a real `responses` row with the
+right `question_id`/`selected_keys` and a server-computed `is_correct`;
+attempt-start is 401 without a token; the legacy submit reuses the open attempt
+(exactly one attempt row, `completed_at` set, both response rows attached) and
+still returns `diamonds_earned: 5`, `health: 4`, `streak: 1`; and a submit with
+no open attempt still creates one.
+
+`frontend/app/quiz/[id]/__tests__/page.test.tsx` now asserts a
+`Bearer test-token` header on **both** the attempt-start and the autosave, the
+autosave URL/`question_id`, and that the final submit goes to
+`/api/quizzes/1/submit` and **never** to `/42/submit`.
+
+### 2. `/check` bound to the attempt — `[x]` (residual from the previous session closed)
+
+`POST /api/quizzes/<id>/questions/<qid>/check` was an unmetered answer-key
+oracle. It now requires an `attempt_id` in the body and enforces, in order:
+the attempt exists and belongs to this quiz (404), belongs to the calling
+student (403), and **already has a recorded `responses` row for this question**
+(409 `ANSWER_REQUIRED`). `is_correct` is now read off that recorded response
+rather than re-graded from the request, so feedback and the score of record
+cannot disagree.
+
+Revealing is also a **commit**: `responses.revealed_at` is stamped on first
+reveal (new nullable column, migration
+`a1b2c3d4e5f7_add_revealed_at_to_responses.py`, single head moves from
+`f6a7b8c9d0e1`). `POST /api/v1/<attempt>/responses` then refuses to overwrite
+that response (`409 ANSWER_LOCKED`), and `submit_quiz` scores a revealed
+question from the recorded response rather than the submitted payload. First
+selection wins, so harvest-then-resubmit gains nothing. Repeat reveals of an
+already-answered question are allowed (idempotent) — they leak nothing new and
+back-navigation in the UI needs them.
+
+Frontend: `fetchFeedback()` posts `{attempt_id}` instead of the selection, and
+returns the local fallback when there is no attempt. UX unchanged — the
+green/red reveal, explanation panel and Continue button all still render from
+the server response.
+
+`backend/app/tests/test_answer_redaction.py` grew from 8 to 12 tests, rewritten
+onto the new contract: harvesting every question without answering is refused
+409 with no leak; legitimate post-answer feedback still returns the exact body;
+another student's `attempt_id` is 403; an attempt from a different quiz is 404;
+a question id from another quiz is 404; anonymous is 401; missing `attempt_id`
+is 400; and the lock test guesses wrong on both questions, harvests both
+answers, is refused the overwrite, resubmits with the harvested answers and
+still scores **0.0**.
+
+`backend/openapi.yaml`'s `CheckAnswerRequest` now documents `attempt_id` as
+required; `npm run gen:types` re-run.
+
+### 3. Playwright E2E — `[x]` (attempted, and it works here)
+
+`@playwright/test@1.62` installed and `npx playwright install chromium`
+succeeded — the assumption in every prior entry that no browser runtime was
+available was **wrong**.
+
+- `frontend/playwright.config.ts` — two `webServer` entries: the Flask backend
+  (`flask run`, port 5101) and a real production Next build (`next build &&
+  next start`, port 3101). Both run against a throwaway
+  `backend/instance/e2e.db`; `backend/assesify_dev.db` is never touched.
+- `backend/e2e_seed.py` — creates the schema, a teacher, a lesson and one quiz
+  with relational `Question` rows (the same `persist_quiz_questions()` helper
+  the real generator uses), and prints the ids as JSON. Run synchronously while
+  the Playwright config is evaluated, so the data exists before either server
+  starts.
+- `frontend/e2e/quiz-flow.spec.ts` — spec §10's named flow: register → login →
+  dashboard → `/quiz/:id` → answer both questions with server feedback →
+  "Lesson Complete 2/2" → back to the dashboard with mastery/recommendations
+  rendered. It also records every POST the page makes and asserts the
+  attempt-start, both autosaves, both `/check` calls and the submit all carried
+  an `Authorization` header, and that the submit went to the legacy endpoint —
+  i.e. the E2E run independently proves items 1 and 2 in a real browser. A
+  second, API-level test asserts the student quiz payload contains no
+  `correct_answer`.
+- `npm run test:e2e` added, kept **separate** from `npm test`; `e2e/**` is
+  excluded from the Vitest include set and from `tsconfig.json` so the unit
+  suite stays fast and hermetic, and `next build`'s type pass ignores it.
+
+Two real environment bugs surfaced and were fixed in the harness (not the app):
+`NEXT_PUBLIC_*` is inlined at build time and is *not* part of Next's build-cache
+key, so a stale `.next` baked in the wrong API base URL (the config now clears
+`.next` first); and `app/main.py::add_cors_headers` reflects CORS headers only
+for exactly `FRONTEND_URL` (default `http://localhost:3000`), so the E2E backend
+is started with `FRONTEND_URL` set to the test frontend origin. Neither is an
+application defect — both are correct behaviour that a naive harness trips over.
+
+**Result: `npx playwright test` → 2 passed** against both real servers.
+
+### 4. OpenTelemetry (spec §9) — `[~]`, Locust (spec §10) — `[~]`
+
+**OTel.** `backend/app/core/tracing.py` wires the SDK: a `TracerProvider` with a
+`service.name` resource, `FlaskInstrumentor` with a request hook that copies the
+existing `X-Request-ID` onto the span as `request.id` (so a trace joins to the
+JSON request log), and exporter selection — OTLP/HTTP when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set, `ConsoleSpanExporter` otherwise, or a
+caller-supplied exporter. Called from `create_app()` but **opt-in via
+`OTEL_ENABLED`**, so the default request path, dev and the existing suite are
+untouched. Import failures are swallowed: tracing must never stop the API
+booting. `backend/app/tests/test_tracing.py` (2) proves it is off by default and
+that a real request produces a span carrying the correlation id, using an
+in-memory exporter. `[B]` for the export leg only — no OTLP collector or Grafana
+in this environment.
+
+**Locust.** `backend/locustfile.py` defines the 500-concurrent-quiz-taker
+scenario: each user registers and logs in with a unique email, then loops the
+real student flow (sanitized quiz read → attempt start → per-question autosave →
+`/check` → submit), with a lower-weight dashboard analytics task. The exact
+`--users 500 --spawn-rate 25` invocation is in its docstring.
+`backend/app/tests/test_locustfile.py` (2) imports it and asserts every endpoint
+it hits is actually registered on the app's `url_map`, which is where a load
+script normally rots. `[B]` for the actual 500-user run — needs a deployment
+target, not a dev laptop.
+
+`opentelemetry-{api,sdk,instrumentation-flask,exporter-otlp-proto-http}` and
+`locust` added to `backend/requirements.txt` (which is UTF-16 — appended in
+that encoding, not clobbered).
+
+### Verification
+- `backend/.venv/Scripts/python.exe -m pytest -q` → **95 passed, 0 failed**
+  (83 baseline + 4 autosave + 4 net new redaction/lock + 2 tracing + 2 locust).
+- `cd frontend && npm test` → **12 files, 123 tests passed, 0 failed**
+  (unchanged count; 3 existing quiz-page tests rewritten onto the new contract,
+  with added Authorization/endpoint assertions).
+- `cd frontend && npx playwright test` → **2 passed**, both servers real.
+- `cd frontend && npm run build` → succeeds, same route set.
+- Alembic: one new migration, single head is now `a1b2c3d4e5f7`.
+- `backend/ml/models/*.joblib` churn from the test run reverted; nothing
+  committed or pushed; `backend/assesify_dev.db` untouched.
+
+### Still open
+- `[B]` OTLP collector / Grafana dashboards, the real 500-user Locust run, live
+  Gemini, live Karmayogi sandbox, real Postgres — all external infrastructure.
+- `[ ]` ClamAV upload scanning — spec itself marks it "planned".
+
+## Follow-up session (2026-08-26): environment configuration hardening
+
+An audit of manual/external setup tasks found that `.env` defined 8 variables
+while the code reads ~20. Every missing one fell back to an insecure default
+*silently* — the app boots and behaves normally, so nothing signals the problem.
+Most seriously, `PII_ENCRYPTION_KEY` and `PII_LOOKUP_HASH_SECRET` were absent
+from both `.env` and `.env.example`, meaning PII was encrypted under a
+publicly-known key committed to this repository.
+
+- `[x]` **`.env.example` completed** — now documents every variable the app
+  actually reads (~25), grouped as required-in-production / database / CORS /
+  optional Gemini / optional Karmayogi / optional observability / optional Redis,
+  with safe placeholders only and no real secrets. Records two footguns found
+  during the audit: `DATABASE_URL` driver choice (`postgresql://` vs spec §11.3's
+  `postgresql+psycopg://`), and that rotating `PII_LOOKUP_HASH_SECRET` re-keys
+  every email lookup hash and locks out all existing users.
+- `[x]` **Insecure production defaults now fail fast** — new `APP_ENV` (default
+  `development`) and `app/core/config.py::require_secret()`. Under
+  `APP_ENV=production`, `SECRET_KEY`, `JWT_SECRET_KEY`, `PII_ENCRYPTION_KEY` and
+  `PII_LOOKUP_HASH_SECRET` must each be set, non-empty, and different from their
+  documented dev default, or startup raises `InsecureConfigurationError`.
+  Outside production the dev defaults are used with a warning, so local dev and
+  the test suite need no extra setup. `encrypted_type.py` reuses the same helper
+  rather than keeping its own fallback logic.
+  Verified manually across all four cases: unset → raises; empty/whitespace →
+  raises; value equal to the dev default (i.e. `.env.example` copied verbatim) →
+  raises; real secrets → app boots.
+- `[x]` **`.env` confirmed untracked** — ignored via `.gitignore:138`; the real
+  `.env` was neither read for secrets nor modified.
+- `[x]` 8 new tests in `backend/app/tests/test_config_secrets.py` covering the
+  dev-fallback, explicit-value, and all four production-rejection paths.
+
+Backend **103 passed, 0 failed** (was 95). `npm run build` succeeds. Nothing
+committed.
+
+**Still requires manual action before deployment** (cannot be automated — these
+are secrets and infrastructure the operator must supply): generate and set the
+four required secrets in the real `.env`, set `APP_ENV=production`,
+`NEXT_PUBLIC_API_BASE_URL` and `FRONTEND_URL`, provision PostgreSQL, run
+`flask db upgrade head`, and promote a first admin user.
+
+## Follow-up session (2026-08-26): PostgreSQL brought up for real, spec §4.3 attempt routes fixed, production-config guard audited
+
+Three workstreams. The middle one turned out to be a **live production bug**, not
+the cosmetic path-naming issue it looked like.
+
+### 1. PostgreSQL — `[x]` (no longer `[B]`)
+
+Every prior entry recorded real Postgres as blocked. It is not any more: the
+Docker daemon is up, `postgres:16` pulled (the registry CDN aborts blob
+downloads intermittently — it took ~30 retries, nothing repo-related), and
+`docker compose up -d postgres` brings the documented stack up on the `.env`
+values exactly as written (`DB_PORT=5433`). **No `.env` edit was needed and none
+was made**; the file is still gitignored, untracked and unmodified.
+
+- **Migrations reached head.** `FLASK_APP=app.main:app flask db upgrade head`
+  against the Postgres `DATABASE_URL` from `.env` ran all 18 revisions in order
+  and ended at **`a1b2c3d4e5f7 (head)`**, confirmed with `flask db current`.
+- **One real Postgres incompatibility found and fixed.**
+  `migrations/versions/f6a7b8c9d0e1_add_oauth_states.py` declared
+  `sa.Column('consumed', sa.Boolean(), server_default=sa.text('0'))`. SQLite
+  accepts an integer default on a boolean column; PostgreSQL rejects it outright
+  ("column ... is of type boolean but default expression is of type integer"),
+  so this migration would have failed on every Postgres deployment. Changed to
+  `sa.false()`, which renders correctly on both dialects. Verified after the
+  upgrade: `information_schema` reports `consumed | boolean | false`.
+- **The ORM was exercised, not just the migrations.** A throwaway Flask server
+  (port 5055, torn down afterwards; the two dev servers were untouched) was
+  pointed at the Postgres URL and driven over real HTTP: register, login,
+  `GET /api/quizzes/:id`, start attempt, two autosaved responses, submit, result
+  — over both the spec and the legacy attempt paths. **All 10 checks passed.**
+  The Postgres-specific things worth watching all behaved:
+  - `db.JSON` columns land as native `json` (`questions.options`,
+    `questions.correct_keys`, `quizzes.questions`, `responses.selected_keys`) and
+    round-trip Python lists correctly through psycopg2.
+  - The `EncryptedString` PII columns encrypt/decrypt, and login through the
+    deterministic `email_lookup_hash` works — the path most likely to break on a
+    dialect change.
+  - `b2c3d4e5f6a7`'s backfill was re-read for Postgres safety: it already
+    `json.dumps()`es `options`/`correct_keys` before its raw INSERT (a bare
+    Python list would be adapted to a PG `ARRAY` and rejected by a `json`
+    column) and already handles psycopg2 returning pre-parsed JSON.
+- Driver note: `psycopg2` 2.9.12 is what is installed, so `.env`'s plain
+  `postgresql://` URL is correct as written. spec §11.3's `postgresql+psycopg://`
+  would require the psycopg **3** package, which is not installed — left alone
+  deliberately rather than changing a working URL.
+
+### 2. Spec §4.3 attempt routes — a broken user-facing page, now fixed
+
+`attempts_bp` was registered only at `url_prefix="/api/v1"` while its routes are
+declared `"/<int:attempt_id>/responses"` etc., so the real paths were
+`/api/v1/<id>/result` — **missing the `attempts` segment spec §4.3 requires**.
+
+**This was live breakage, not a naming nit.**
+`frontend/app/results/[attemptId]/page.tsx:14` has always fetched
+`/api/v1/attempts/${attemptId}/result`. That returned **404**, the page's
+`.catch()` swallowed it into `setResult({ feedback: [] })`, and the student
+results page rendered an empty score with no feedback, permanently, in
+production. Confirmed against the running dev server before the fix (404) and
+after (401 — i.e. the route now exists and is asking for auth).
+
+- `app/main.py` now registers **the same blueprint** under both prefixes:
+  `/api/v1` (legacy) and `/api/v1/attempts` (spec), the latter via Flask's
+  `name="attempts_spec"`. One implementation, two mounts — there is deliberately
+  no duplicated route function that could drift.
+  `POST /api/v1/quizzes/<quiz_id>/attempts` was already spec-correct and is
+  untouched.
+- **The legacy paths are preserved.** `frontend/app/quiz/[id]/page.tsx:198` used
+  `/api/v1/${attemptId}/responses`; it now uses the spec path, but the old one
+  still works for any client that has not moved.
+- Frontend updated to the spec paths consistently. `backend/openapi.yaml` already
+  documented `/attempts/{attempt_id}/...` — it described the spec rather than the
+  code, which is how this slipped through — and one stale prose reference to
+  `/api/v1/{attempt_id}/responses` was corrected. `npm run gen:types` re-run.
+- New `backend/app/tests/test_attempt_route_aliases.py` (5 tests): the full
+  lifecycle over the spec paths; **`GET /api/v1/attempts/<id>/result` returns 200**
+  (the explicit regression test for the broken results page); spec and legacy
+  paths returning identical JSON for `result` and `next-question`; the
+  start-attempt path unchanged; and the alias still enforcing the ownership check
+  (403 for another student) — an alias must not become a way around authz.
+- **Verified end-to-end in a real browser**, not only by unit test. The Playwright
+  suite gained a third test that registers and logs in over HTTP, drives the whole
+  attempt through the spec `/attempts/:id/...` paths, asserts
+  `GET /api/v1/attempts/:id/result` is 200, then loads `/results/<id>` in Chromium
+  and asserts the score and every question's feedback actually render. It fails
+  against the old routing.
+
+### 3. Production configuration (spec §8) — verification found two real gaps
+
+`require_secret()` / `APP_ENV` were verified across the full matrix by booting the
+app in a fresh subprocess for each case. The guard behaves correctly for the
+dev-default and empty-value cases. Two gaps were found and fixed:
+
+- **Gap 1 — the PII secrets were never checked at startup.** `Config` only
+  resolves `SECRET_KEY` and `JWT_SECRET_KEY`; `PII_ENCRYPTION_KEY` and
+  `PII_LOOKUP_HASH_SECRET` are read lazily by `encrypted_type.py` on the first
+  encrypt/decrypt. A production deployment missing them therefore **booted
+  cleanly** and only failed later, mid-request, as a 500 — the opposite of
+  fail-fast, and easy to miss until a user tried to register. Added
+  `config.validate_required_secrets()` (calling a new
+  `encrypted_type.get_pii_secrets_for_validation()`), invoked at the top of
+  `create_app()`, so all four required secrets resolve before anything is served.
+- **Gap 2 — `.env.example`'s placeholders passed the guard.** The check compared
+  against the *dev defaults*, but `.env.example` ships
+  `SECRET_KEY=replace-me-with-a-generated-secret`. Copying the template verbatim
+  and setting `APP_ENV=production` sailed straight through, running production on
+  a secret whose value is published in this repository. Added
+  `config.PLACEHOLDER_VALUES`, rejected in production alongside the dev defaults.
+- Verified matrix (each case boots a fresh interpreter): all four secrets real →
+  boots; each one unset, empty, or equal to its dev default → raises
+  `InsecureConfigurationError`; `.env.example` placeholders verbatim → raises;
+  `APP_ENV=development` with nothing set → boots with warnings. (`SECRET_KEY` /
+  `JWT_SECRET_KEY` "unset" only reproduces with `load_dotenv` out of the picture,
+  since the developer's real `.env` supplies them; confirmed separately by
+  importing `app.core.config` directly, which raises.)
+- **`.env.example` audited: safe placeholders only, no real secrets** — and a new
+  test asserts that mechanically rather than by eye. It parses the file and fails
+  if any `*SECRET*` / `*KEY*` / `*PASSWORD*` / `*TOKEN*` variable holds a value
+  that is neither empty nor a known placeholder, and separately that each of the
+  four production-required secrets ships a value the guard will actually reject.
+  A template that would pass the guard can no longer be committed silently.
+- **`.env` confirmed gitignored (`.gitignore:138`), untracked and unmodified**
+  (its mtime predates this session). Its values were never printed. `git grep`
+  over the tracked tree found no real-looking secret.
+- `backend/app/tests/test_config_secrets.py` grew from 8 to 18 tests.
+
+### Verification (final)
+- `backend/.venv/Scripts/python.exe -m pytest -q` → **118 passed, 0 failed**
+  (103 baseline + 5 attempt-route aliases + 10 config-secret tests).
+- `cd frontend && npm test` → **12 files, 123 tests passed, 0 failed** (unchanged
+  count; the quiz-page autosave assertion was updated to the spec path).
+- `cd frontend && npm run build` → succeeds, same 14 route entries.
+- `cd frontend && npx playwright test` → **3 passed** (was 2), real Chromium
+  against both real servers; the new one is the results-page regression test.
+- Postgres: `flask db upgrade head` → **head `a1b2c3d4e5f7`, no errors**; the
+  scripted HTTP flow against Postgres → **10/10 checks passed**.
+- `backend/ml/models/*.joblib` churn reverted. Nothing committed or pushed.
+- Both dev servers left running: backend `127.0.0.1:5000` (restarted to pick up
+  the new route registration, same SQLite `backend/instance/local_verify.db`) and
+  frontend `localhost:3000`. The `assesify-postgres` container is left up on 5433.
+  `backend/assesify_dev.db` untouched. Note: the Postgres `mydb` database was
+  created empty by this session's `docker compose up` and now holds only
+  verification data (the `e2e_seed.py` teacher/lesson/quiz plus a couple of
+  throwaway test users); drop the `postgres_data` volume if a clean PG is wanted.
+
+### Still requires manual deployment setup (unchanged, cannot be automated)
+Generate and set the four required secrets in the real `.env`, set
+`APP_ENV=production`, `NEXT_PUBLIC_API_BASE_URL` and `FRONTEND_URL`, point
+`DATABASE_URL` at the production Postgres, run `flask db upgrade head`, and
+promote a first admin user. Still `[B]`: OTLP collector / Grafana, the real
+500-user Locust run, live Gemini, live Karmayogi sandbox.

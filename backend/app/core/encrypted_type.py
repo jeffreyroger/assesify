@@ -20,6 +20,8 @@ import os
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy.types import TypeDecorator, String
 
+from app.core.config import require_secret
+
 
 def _derive_fernet_key(raw: str) -> bytes:
     """Turn an arbitrary secret string into a valid 32-byte urlsafe-base64 Fernet key."""
@@ -35,30 +37,38 @@ _PII_KEY_ENV = "PII_ENCRYPTION_KEY"
 _HASH_SECRET_ENV = "PII_LOOKUP_HASH_SECRET"
 
 
+_GENERATE_HINT = "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+
+#: Rotating this secret re-keys every email lookup hash, which would make every
+#: existing user unable to log in. It must be set once and kept stable.
+_HASH_ROTATION_HINT = (
+    _GENERATE_HINT + " Set it once and keep it stable: changing it invalidates "
+    "every stored email lookup hash and locks out all existing users."
+)
+
+
 def _get_fernet() -> Fernet:
-    raw = os.environ.get(_PII_KEY_ENV)
-    if not raw:
-        import logging
-        logging.getLogger(__name__).warning(
-            "%s is not set; falling back to an insecure, publicly-known development "
-            "key for PII-at-rest encryption. This is NOT safe for staging/production.",
-            _PII_KEY_ENV,
-        )
-        raw = _DEV_DEFAULT_KEY
+    raw = require_secret(_PII_KEY_ENV, _DEV_DEFAULT_KEY, hint=_GENERATE_HINT)
     return Fernet(_derive_fernet_key(raw))
 
 
 def _get_hash_secret() -> bytes:
-    raw = os.environ.get(_HASH_SECRET_ENV)
-    if not raw:
-        import logging
-        logging.getLogger(__name__).warning(
-            "%s is not set; falling back to an insecure, publicly-known development "
-            "secret for the email lookup hash. This is NOT safe for staging/production.",
-            _HASH_SECRET_ENV,
-        )
-        raw = _DEV_DEFAULT_KEY + "-lookup-hash"
+    raw = require_secret(
+        _HASH_SECRET_ENV, _DEV_DEFAULT_KEY + "-lookup-hash", hint=_HASH_ROTATION_HINT
+    )
     return raw.encode("utf-8")
+
+
+def get_pii_secrets_for_validation() -> None:
+    """Force both PII secrets to resolve now, so a bad config fails at startup.
+
+    `_get_fernet` / `_get_hash_secret` are otherwise only reached on the first
+    encrypt/decrypt. Under APP_ENV=production a missing or placeholder secret
+    would then surface as a mid-request 500 instead of a refusal to boot.
+    Called from `app.core.config.validate_required_secrets()`.
+    """
+    _get_fernet()
+    _get_hash_secret()
 
 
 class EncryptedString(TypeDecorator):

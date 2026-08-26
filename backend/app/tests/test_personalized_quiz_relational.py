@@ -27,7 +27,8 @@ from app.models.users import User, db
 from app.services import personalized_quiz_service as pqs
 from app.services.personalized_quiz_service import PersonalizedQuizService
 
-LEGACY_QUESTION_KEYS = {"question", "options", "correct_answer", "answer", "hint"}
+# The sanitized (student) shape: answers are never shipped with the quiz.
+LEGACY_QUESTION_KEYS = {"id", "question", "options", "hint"}
 
 
 @pytest.fixture

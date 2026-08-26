@@ -75,10 +75,16 @@ def test_legacy_teacher_materials_writes_relational_questions(app):
 
         # But Quiz.to_dict() still serves the legacy shape the quiz-taking
         # frontend page expects, derived from the relational rows.
+        # Default (student) view is sanitized: no correct_answer, no explanation.
         as_dict = quiz.to_dict()
         assert len(as_dict["questions"]) == len(questions)
         for item in as_dict["questions"]:
-            assert set(item.keys()) == {"question", "options", "correct_answer", "answer", "hint"}
+            assert set(item.keys()) == {"id", "question", "options", "hint"}
+
+        # The owning teacher still gets the full legacy shape.
+        teacher_view = quiz.to_dict(include_answers=True)
+        for item in teacher_view["questions"]:
+            assert set(item.keys()) == {"id", "question", "options", "correct_answer", "answer", "hint"}
 
 
 def test_quiz_to_dict_falls_back_to_json_blob_when_no_relational_rows(app):
@@ -94,7 +100,10 @@ def test_quiz_to_dict_falls_back_to_json_blob_when_no_relational_rows(app):
         ])
         db.session.add(lesson_free_quiz)
         db.session.commit()
+        # Sanitized by default even on the deprecated blob path...
         as_dict = lesson_free_quiz.to_dict()
-        assert as_dict["questions"] == [
+        assert as_dict["questions"] == [{"question": "2+2?", "options": ["3", "4"]}]
+        # ...and served verbatim to the owning teacher.
+        assert lesson_free_quiz.to_dict(include_answers=True)["questions"] == [
             {"question": "2+2?", "options": ["3", "4"], "correct_answer": "4", "answer": "math"}
         ]

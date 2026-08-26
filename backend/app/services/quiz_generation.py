@@ -45,28 +45,62 @@ def persist_quiz_questions(quiz_id, questions, competency_tag="general", difficu
     return rows
 
 
-def legacy_shape_from_questions(question_rows):
+def legacy_shape_from_questions(question_rows, include_answers=False):
     """Convert relational `Question` rows back into the legacy generator-dict
-    shape (`question`/`options`/`correct_answer`/`answer`/`hint`) so old
-    frontend consumers of `Quiz.to_dict()["questions"]` keep working unchanged
-    regardless of whether the quiz was generated via the legacy or relational
-    write path.
+    shape (`id`/`question`/`options`/`hint`, plus `correct_answer`/`answer`
+    only when `include_answers`) so old frontend consumers of
+    `Quiz.to_dict()["questions"]` keep working unchanged regardless of whether
+    the quiz was generated via the legacy or relational write path.
+
+    `include_answers` defaults to **False** (spec §4.3 "Full quiz (teacher view)
+    or sanitized (student)", §8 authz): a student must never receive the
+    correct answer for a question they have not answered yet. Students obtain
+    per-question feedback from
+    `POST /api/quizzes/<quiz_id>/questions/<question_id>/check` *after*
+    committing a selection. Teachers who own the quiz's lesson get the
+    unredacted shape.
     """
     result = []
     for question in question_rows:
         options = question.options or []
         option_texts = [option.get("text") for option in options]
-        correct_keys = question.correct_keys or []
-        correct_text = None
-        for option in options:
-            if option.get("key") in correct_keys:
-                correct_text = option.get("text")
-                break
-        result.append({
+        item = {
+            # Relational id, exposed so clients can identify the question when
+            # autosaving a response, asking for feedback, or submitting the
+            # quiz. Everything else in this dict is the historical legacy shape.
+            "id": question.id,
             "question": question.stem,
             "options": option_texts,
-            "correct_answer": correct_text,
-            "answer": question.explanation,
             "hint": "",
-        })
+        }
+        if include_answers:
+            correct_keys = question.correct_keys or []
+            correct_text = None
+            for option in options:
+                if option.get("key") in correct_keys:
+                    correct_text = option.get("text")
+                    break
+            item["correct_answer"] = correct_text
+            item["answer"] = question.explanation
+        result.append(item)
     return result
+
+
+#: Keys of the legacy question shape that reveal the answer to the student.
+REVEALING_LEGACY_KEYS = ("correct_answer", "answer")
+
+
+def redact_legacy_blob(items):
+    """Strip answer-revealing keys from deprecated `Quiz.questions` blob items.
+
+    Only reachable for quizzes that predate the relational `Question` rows and
+    were never backfilled; kept so the redaction invariant holds for *every*
+    read path rather than only the relational one.
+    """
+    redacted = []
+    for item in items or []:
+        if isinstance(item, dict):
+            redacted.append({k: v for k, v in item.items() if k not in REVEALING_LEGACY_KEYS})
+        else:
+            redacted.append(item)
+    return redacted

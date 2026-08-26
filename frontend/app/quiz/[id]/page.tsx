@@ -7,15 +7,27 @@ import { X, Heart, Flag, Loader2 } from "lucide-react";
 import { ProgressBar } from "@/components/ProgressBar";
 import { Button } from "@/components/Button";
 import { clsx } from "clsx";
-import { API_BASE_URL, StartAttemptResponse } from "@/lib/api";
+import { API_BASE_URL, StartAttemptResponse, getToken } from "@/lib/api";
 
 interface Question {
     id?: string | number;
     question: string;
-    answer: string;
+    /** Explanation. Only present for the owning-teacher view of the quiz. */
+    answer?: string;
     options: string[];
-    correct_answer: string;
+    /** Only present for the owning-teacher view of the quiz; students receive
+     *  it per-question from the /check endpoint after committing a selection. */
+    correct_answer?: string;
     hint: string;
+}
+
+/** Server feedback for a single question, returned by
+ *  POST /api/quizzes/:id/questions/:questionId/check once the student has
+ *  committed a selection. This is the only way a student learns the answer. */
+interface Feedback {
+    is_correct: boolean;
+    correct_answer?: string | null;
+    explanation?: string | null;
 }
 
 
@@ -33,6 +45,8 @@ export default function LearnPage() {
     const [attemptId, setAttemptId] = useState<number | null>(null);
     const [answersMap, setAnswersMap] = useState<Record<string, string>>({});
     const [savingMap, setSavingMap] = useState<Record<string, boolean>>({});
+    // Per-question server feedback, populated only after the student checks.
+    const [feedbackMap, setFeedbackMap] = useState<Record<string, Feedback>>({});
 
     useEffect(() => {
         if (!quizId) return;
@@ -46,11 +60,20 @@ export default function LearnPage() {
                 }
                 setLoading(false);
 
-                // Start attempt for autosave if supported
+                // Start an attempt so per-question answers can be autosaved.
+                // This call is @jwt_required, so without the bearer token it
+                // 401s and `attemptId` stays null - which is exactly what used
+                // to happen, silently disabling autosave and the /check
+                // feedback round-trip.
+                const token = getToken();
+                if (!token) return;
                 try {
                     const resp = await fetch(`${API_BASE_URL}/api/v1/quizzes/${quizId}/attempts`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`,
+                        }
                     });
                     if (resp.ok) {
                         const j: StartAttemptResponse = await resp.json();
@@ -104,27 +127,52 @@ export default function LearnPage() {
         return () => window.removeEventListener('keydown', handler);
     }, [currentIndex, status, selectedOption, questions]);
 
+    // Map a selected option's literal text back to its option key (A, B, C ...),
+    // matching how the backend stores `Question.options[].key`.
+    const optionKeyFor = (question: Question, selected: string | null): string | null => {
+        if (!selected) return null;
+        const idx = question.options ? question.options.indexOf(selected) : -1;
+        return idx >= 0 ? String.fromCharCode(65 + idx) : null;
+    };
+
     const submitQuiz = async (finalStats: { correct: number }) => {
         try {
-            // If we have an attemptId, submit via attempt submit endpoint
-            if (attemptId) {
-                            await fetch(`${API_BASE_URL}/api/v1/${attemptId}/submit`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                return;
-            }
+            // Always the legacy submit endpoint, even when an attempt is open.
+            // It is the score of record: it grades server-side from the stored
+            // `correct_keys`, awards gamification (health/streak/diamonds) and
+            // returns the body this app reads. It *reuses* the open attempt
+            // rather than opening a second one, so the autosaved `responses`
+            // rows end up attached to the scored attempt. Routing to
+            // `/api/v1/<attempt>/submit` instead would score from a different
+            // source and award no XP.
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            const token = getToken();
+            if (token) headers['Authorization'] = `Bearer ${token}`;
 
             await fetch(`${API_BASE_URL}/api/quizzes/${quizId}/submit`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({
                     user_id: 1, // hardcoded for demo
-                    answers: questions.map((q, i) => ({
-                        question: q.question,
-                        answer: "Submitted via API",
-                        is_correct: i < finalStats.correct // Approximated
-                    }))
+                    answers: questions.map((q, i) => {
+                        const qKey = q.id ? String(q.id) : String(i);
+                        const selected = answersMap[qKey] ?? null;
+                        const key = optionKeyFor(q, selected);
+                        return {
+                            // Preferred: the server grades against the stored
+                            // question and ignores the client's `is_correct`.
+                            ...(q.id != null ? { question_id: q.id } : {}),
+                            ...(key ? { selected_keys: [key] } : {}),
+                            // Legacy fields kept alongside so a quiz with no
+                            // relational questions still scores as before.
+                            question: q.question,
+                            answer: selected ?? "Submitted via API",
+                            // Server feedback when we have it (the /check
+                            // round-trip), else the old approximation. Ignored
+                            // outright when question_id is present.
+                            is_correct: feedbackMap[qKey]?.is_correct ?? (i < finalStats.correct)
+                        };
+                    })
                 })
             });
         } catch (e) {
@@ -132,42 +180,96 @@ export default function LearnPage() {
         }
     };
 
-    const saveResponse = async (question: any, selected: string) => {
+    const saveResponse = async (question: Question, selected: string): Promise<boolean> => {
         // persist locally
         const qKey = question.id ? String(question.id) : String(questions.indexOf(question));
         setAnswersMap(m => ({ ...m, [qKey]: selected }));
 
         // if we have attemptId and question.id, post to backend
-        if (!attemptId || !question.id) return;
-        const keyIndex = question.options ? question.options.indexOf(selected) : -1;
-        const key = keyIndex >= 0 ? String.fromCharCode(65 + keyIndex) : selected;
+        if (!attemptId || !question.id) return false;
+        const key = optionKeyFor(question, selected) ?? selected;
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const token = getToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
 
         setSavingMap(m => ({ ...m, [qKey]: true }));
         try {
-            await fetch(`${API_BASE_URL}/api/v1/${attemptId}/responses`, {
+            const resp = await fetch(`${API_BASE_URL}/api/v1/attempts/${attemptId}/responses`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify({ question_id: question.id, selected_keys: [key] })
             });
+            return resp.ok;
         } catch (e) {
             console.warn('Autosave failed', e);
+            return false;
         } finally {
             setSavingMap(m => ({ ...m, [qKey]: false }));
         }
     };
 
-    const handleCheck = () => {
+    // Ask the server to grade this one question and reveal its answer. The
+    // quiz payload no longer carries `correct_answer`, so this round-trip is
+    // what drives review-mode rendering. Falls back to a local comparison when
+    // the question has no relational id or the request fails (e.g. a legacy
+    // quiz served from the deprecated JSON blob, or an unauthenticated view).
+    const fetchFeedback = async (question: Question, selected: string): Promise<Feedback> => {
+        const localFallback: Feedback = {
+            is_correct: question.correct_answer != null
+                && selected.trim() === question.correct_answer.trim(),
+            correct_answer: question.correct_answer,
+            explanation: question.answer,
+        };
+        // Feedback is bound to the recorded answer in this student's attempt,
+        // so without an attempt (anonymous, or a legacy quiz with no
+        // relational questions) there is nothing to reveal.
+        if (question.id == null || !attemptId) return localFallback;
+
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const token = getToken();
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        try {
+            const resp = await fetch(
+                `${API_BASE_URL}/api/quizzes/${quizId}/questions/${question.id}/check`,
+                {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ attempt_id: attemptId }),
+                }
+            );
+            if (!resp.ok) return localFallback;
+            const j: Feedback = await resp.json();
+            return {
+                is_correct: Boolean(j.is_correct),
+                correct_answer: j.correct_answer,
+                explanation: j.explanation,
+            };
+        } catch (e) {
+            console.warn('Could not fetch answer feedback', e);
+            return localFallback;
+        }
+    };
+
+    const handleCheck = async () => {
         if (!selectedOption) return;
 
         const currentQ = questions[currentIndex];
-        // Check if correct (case insensitive trim just in case)
-        const isCorrect = selectedOption.trim() === currentQ.correct_answer?.trim();
+        const qKey = currentQ.id != null ? String(currentQ.id) : String(currentIndex);
 
-        // save response locally and to backend
-        saveResponse(currentQ, selectedOption);
-
+        // Enter review mode immediately so the UI never stalls; the correct /
+        // incorrect styling fills in as soon as the server answers.
         setStatus("review");
-        if (isCorrect) {
+
+        // The autosave must land *before* asking for feedback: the /check
+        // endpoint only reveals a question the student has actually answered
+        // in this attempt.
+        await saveResponse(currentQ, selectedOption);
+
+        const feedback = await fetchFeedback(currentQ, selectedOption);
+        setFeedbackMap(m => ({ ...m, [qKey]: feedback }));
+        if (feedback.is_correct) {
             setStats(s => ({ xp: s.xp + 10, correct: s.correct + 1 }));
         }
     };
@@ -245,6 +347,9 @@ export default function LearnPage() {
     }
 
     const currentQuestion = questions[currentIndex];
+    const currentKey = currentQuestion.id != null ? String(currentQuestion.id) : String(currentIndex);
+    // Undefined until the /check round-trip for this question resolves.
+    const currentFeedback = feedbackMap[currentKey];
     const progress = ((currentIndex) / questions.length) * 100;
 
     // Ensure we have options to display
@@ -276,8 +381,11 @@ export default function LearnPage() {
                     <div className="grid grid-cols-1 gap-4 mt-8">
                         {displayOptions.map((opt, idx) => {
                             const isSelected = selectedOption === opt;
-                            const isCorrect = opt === currentQuestion.correct_answer;
-                            const showResult = status === 'review';
+                            const isCorrect = currentFeedback?.correct_answer != null
+                                && opt === currentFeedback.correct_answer;
+                            // Hold off on the green/red reveal until the server
+                            // has told us which option is correct.
+                            const showResult = status === 'review' && currentFeedback !== undefined;
 
                             let variantClass = "border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-zinc-800";
 
@@ -305,10 +413,10 @@ export default function LearnPage() {
                         })}
                     </div>
 
-                    {status === 'review' && (
+                    {status === 'review' && (currentFeedback?.explanation ?? currentQuestion.answer) && (
                         <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-xl animate-in fade-in">
                             <p className="text-sm font-bold text-blue-600 dark:text-blue-400 mb-1">Explanation</p>
-                            <p className="text-slate-700 dark:text-slate-300">{currentQuestion.answer}</p>
+                            <p className="text-slate-700 dark:text-slate-300">{currentFeedback?.explanation ?? currentQuestion.answer}</p>
                         </div>
                     )}
                 </div>
@@ -317,12 +425,14 @@ export default function LearnPage() {
             {/* Footer Interface */}
             <footer className={clsx(
                 "p-6 border-t-2 border-slate-200 dark:border-slate-800 sticky bottom-0 transition-colors duration-300",
-                status === 'review' ? (selectedOption === currentQuestion.correct_answer ? "bg-brand-green/10" : "bg-brand-red/10") : "bg-white dark:bg-zinc-900"
+                status === 'review' && currentFeedback
+                    ? (currentFeedback.is_correct ? "bg-brand-green/10" : "bg-brand-red/10")
+                    : "bg-white dark:bg-zinc-900"
             )}>
                 <div className="max-w-2xl mx-auto flex items-center justify-between">
-                    {status === 'review' && (
+                    {status === 'review' && currentFeedback && (
                         <div className="hidden md:block">
-                            {selectedOption === currentQuestion.correct_answer ? (
+                            {currentFeedback.is_correct ? (
                                 <div className="text-brand-green font-bold text-xl flex items-center gap-2">
                                     <div className="w-8 h-8 bg-brand-green rounded-full flex items-center justify-center text-white">✓</div>
                                     Correct!
@@ -348,8 +458,8 @@ export default function LearnPage() {
                             </Button>
                         ) : (
                             <Button
-                                variant={selectedOption === currentQuestion.correct_answer ? "primary" : "danger"}
-                                className={clsx("w-full md:w-40", selectedOption === currentQuestion.correct_answer && "bg-brand-green hover:bg-brand-green/90 border-brand-green-dark")}
+                                variant={currentFeedback?.is_correct === false ? "danger" : "primary"}
+                                className={clsx("w-full md:w-40", currentFeedback?.is_correct && "bg-brand-green hover:bg-brand-green/90 border-brand-green-dark")}
                                 size="lg"
                                 onClick={handleNext}
                             >

@@ -214,6 +214,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/quizzes/{quiz_id}/questions/{question_id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Grade one question and reveal its answer, after a selection is committed
+         * @description Feedback only - nothing is recorded. Exists so the quiz payload can omit `correct_answer`: the client learns an answer only for a question the student has just answered. The score of record is still computed by `POST /quizzes/{quiz_id}/submit` (or the attempts path), which re-grades server-side from the stored `correct_keys`.
+         */
+        post: operations["checkQuizAnswer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/quizzes/{quiz_id}/submit": {
         parameters: {
             query?: never;
@@ -608,10 +628,36 @@ export interface components {
             correct_keys?: string[];
             explanation?: string | null;
         };
+        /**
+         * @description The question shape served by `GET /api/quizzes/:id` (produced by `quiz_generation.legacy_shape_from_questions()`). `id` is the relational `questions.id` and should be echoed back as `question_id` when saving a response, asking for feedback, or submitting the quiz so the server can grade authoritatively.
+         *
+         *     `correct_answer` and `answer` (the explanation) are present **only** in the owning teacher's view. The student / anonymous view omits them entirely so the answer key cannot be read out of the network response before answering (spec §4.3, §8). Students obtain them one question at a time from `POST /quizzes/{quiz_id}/questions/{question_id}/check` after committing a selection.
+         */
+        LegacyQuizQuestion: {
+            id: number | null;
+            question: string;
+            options: string[];
+            /** @description Owning-teacher view only. */
+            correct_answer?: string | null;
+            /** @description Explanation. Owning-teacher view only. */
+            answer?: string | null;
+            hint: string;
+        };
+        /** @description Identifies the attempt the feedback is bound to. The attempt must belong to the calling student and to this quiz, and the question must already have a recorded response in it (written by `POST /api/v1/attempts/{attempt_id}/responses`) - otherwise the endpoint would be an unmetered answer-key oracle. Revealing locks that response: it can no longer be overwritten, and it is what the submit endpoint scores. */
+        CheckAnswerRequest: {
+            attempt_id: number;
+        };
+        CheckAnswerResponse: {
+            question_id: number;
+            is_correct: boolean;
+            correct_answer: string | null;
+            correct_keys: string[];
+            explanation: string | null;
+        };
         Quiz: {
             id?: number;
             lesson_id?: number;
-            questions?: components["schemas"]["Question"][];
+            questions?: components["schemas"]["LegacyQuizQuestion"][];
             /** Format: date-time */
             created_at?: string;
         };
@@ -1164,6 +1210,47 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["RecentQuiz"][];
                 };
+            };
+        };
+    };
+    checkQuizAnswer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                quiz_id: number;
+                question_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CheckAnswerRequest"];
+            };
+        };
+        responses: {
+            /** @description Feedback for this one question */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CheckAnswerResponse"];
+                };
+            };
+            /** @description No selection supplied */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The question does not belong to this quiz */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
